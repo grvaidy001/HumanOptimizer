@@ -60,12 +60,19 @@ def _refresh_tokens(refresh_token: str) -> dict:
 
 def save_tokens(conn, token_data: dict):
     expires = datetime.now(timezone.utc) + timedelta(seconds=token_data.get("expires_in", 3600))
-    conn.execute("""
-        INSERT OR REPLACE INTO whoop_tokens (id, access_token, refresh_token, expires_at, scopes)
-        VALUES (1, ?, ?, ?, ?)
-    """, (token_data["access_token"], token_data["refresh_token"],
-          expires.isoformat(), token_data.get("scope", SCOPES)))
-    conn.commit()
+    try:
+        conn.execute("""
+            INSERT OR REPLACE INTO whoop_tokens (id, access_token, refresh_token, expires_at, scopes)
+            VALUES (1, ?, ?, ?, ?)
+        """, (token_data["access_token"], token_data["refresh_token"],
+              expires.isoformat(), token_data.get("scope", SCOPES)))
+        conn.commit()
+        # Verify save
+        row = conn.execute("SELECT id FROM whoop_tokens WHERE id = 1").fetchone()
+        print(f"WHOOP tokens saved: {'YES' if row else 'NO'}")
+    except Exception as e:
+        print(f"ERROR saving WHOOP tokens: {e}")
+        raise
 
 
 def _bootstrap_from_env(conn):

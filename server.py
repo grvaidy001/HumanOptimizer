@@ -33,7 +33,15 @@ WHOOP_WEBHOOK_SECRET = os.getenv("WHOOP_WEBHOOK_SECRET", "")
 
 
 async def health(request: Request):
-    return JSONResponse({"status": "ok", "tools": 40})
+    from app.db import IS_POSTGRES
+    conn = get_connection()
+    try:
+        row = conn.execute("SELECT id, expires_at FROM whoop_tokens WHERE id = 1").fetchone()
+        whoop = {"has_tokens": bool(row), "expires_at": row["expires_at"] if row else None}
+    except Exception as e:
+        whoop = {"has_tokens": False, "error": str(e)}
+    conn.close()
+    return JSONResponse({"status": "ok", "tools": 53, "db_mode": "postgres" if IS_POSTGRES else "sqlite", "whoop": whoop})
 
 
 async def whoop_webhook(request: Request):
