@@ -1151,7 +1151,8 @@ def create_goal(
         VALUES (?, ?, ?, ?, ?, ?)
     """, (name, category, target_value, target_unit, target_date, notes))
     conn.commit()
-    goal_id = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
+    row = conn.execute("SELECT id FROM goals ORDER BY id DESC LIMIT 1").fetchone()
+    goal_id = row["id"] if row else 0
     sync_if_turso(conn)
     conn.close()
     return {"id": goal_id, "name": name, "category": category, "target_value": target_value,
@@ -1565,7 +1566,8 @@ def create_12_week_year(
         VALUES (?, ?, ?, ?)
     """, (name, s, e, goals))
     conn.commit()
-    cycle_id = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
+    row = conn.execute("SELECT id FROM twelve_week_years ORDER BY id DESC LIMIT 1").fetchone()
+    cycle_id = row["id"] if row else 0
     sync_if_turso(conn)
     conn.close()
 
