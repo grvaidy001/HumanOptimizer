@@ -140,11 +140,12 @@ def _api_get(token: str, path: str, params: dict = None) -> dict:
     return resp.json()
 
 
-def _paginate_all(token: str, path: str, start: str, end: str) -> list:
-    """Fetch all records from a paginated WHOOP endpoint."""
+def _paginate_all(token: str, path: str, start: str, end: str, max_pages: int = 4) -> list:
+    """Fetch records from a paginated WHOOP endpoint (capped to avoid timeouts)."""
     all_records = []
     params = {"start": start, "end": end, "limit": 25}
-    while True:
+    pages = 0
+    while pages < max_pages:
         data = _api_get(token, path, params)
         if "error" in data:
             break
@@ -154,6 +155,7 @@ def _paginate_all(token: str, path: str, start: str, end: str) -> list:
         if not next_token or not records:
             break
         params["nextToken"] = next_token
+        pages += 1
     return all_records
 
 

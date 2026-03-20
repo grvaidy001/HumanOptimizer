@@ -891,8 +891,8 @@ def whoop_fetch_today(target_date: str = "") -> dict:
 def whoop_fetch_range(days: int = 10) -> dict:
     """Fetch WHOOP data for the last N days in bulk and save to DB.
 
-    Uses bulk API calls (3 total) instead of per-day calls. Much faster and more reliable.
-    Example: whoop_fetch_range(10) fetches last 10 days.
+    For large ranges (30+ days), fetches in 2-week chunks to avoid timeouts.
+    Max recommended: 30 days per call. For longer history, call multiple times.
     """
     from app.providers.whoop import fetch_bulk, is_connected
     conn = get_connection()
@@ -901,7 +901,9 @@ def whoop_fetch_range(days: int = 10) -> dict:
         conn.close()
         return {"error": "WHOOP not connected. Run whoop_start_auth first."}
 
-    records = fetch_bulk(conn, days)
+    # Cap at 30 days to avoid timeout
+    fetch_days = min(days, 30)
+    records = fetch_bulk(conn, fetch_days)
     if records and "error" in records[0]:
         conn.close()
         return records[0]
@@ -931,7 +933,54 @@ def whoop_fetch_range(days: int = 10) -> dict:
     sync_if_turso(conn)
     conn.close()
 
-    return {"days_saved": len(saved), "results": saved}
+    msg = f"Fetched {fetch_days} days." if days <= 30 else f"Fetched {fetch_days} of {days} days (max 30 per call). Call again for more."
+    return {"days_saved": len(saved), "results": saved, "note": msg}
+
+
+@mcp.tool()
+def whoop_summary(days: int = 90) -> dict:
+    """Get WHOOP summary/trends from STORED data (no API calls, instant).
+
+    Use this for longer-term analysis. Data must be fetched first via whoop_fetch_range.
+    Returns averages, trends, min/max for recovery, HRV, RHR, strain, sleep.
+    """
+    conn = get_connection()
+    cutoff = (date.today() - timedelta(days=days)).isoformat()
+    rows = conn.execute(
+        "SELECT * FROM whoop_daily WHERE date >= ? ORDER BY date", (cutoff,)
+    ).fetchall()
+    conn.close()
+
+    if not rows:
+        return {"message": f"No stored WHOOP data for last {days} days. Run whoop_fetch_range first."}
+
+    data = [dict(r) for r in rows]
+
+    def stats(key):
+        vals = [d[key] for d in data if d.get(key) is not None]
+        if not vals:
+            return None
+        return {
+            "avg": round(sum(vals) / len(vals), 1),
+            "min": round(min(vals), 1),
+            "max": round(max(vals), 1),
+            "latest": round(vals[-1], 1),
+            "first": round(vals[0], 1),
+            "trend": "up" if len(vals) > 1 and vals[-1] > vals[0] else "down" if len(vals) > 1 and vals[-1] < vals[0] else "stable",
+            "count": len(vals),
+        }
+
+    return {
+        "period": f"Last {days} days",
+        "days_with_data": len(data),
+        "recovery": stats("recovery_score"),
+        "hrv": stats("hrv"),
+        "rhr": stats("rhr"),
+        "strain": stats("strain"),
+        "sleep_hours": stats("sleep_hours"),
+        "sleep_score": stats("sleep_score"),
+        "calories": stats("calories_burned"),
+    }
 
 
 @mcp.tool()
