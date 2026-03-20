@@ -139,7 +139,10 @@ def _paginate_all(token: str, path: str, start: str, end: str, max_pages: int = 
 
 
 def _extract_date_from_record(record: dict) -> str:
-    for field in ["start", "created_at"]:
+    """Extract calendar date. Uses 'end' for sleep/recovery (wake-up day), 'start' for cycles."""
+    # For sleep/recovery, the 'end' time is when you woke up = the day this data belongs to
+    # For cycles, 'start' is the beginning of the day
+    for field in ["end", "start", "created_at"]:
         if field in record and record[field]:
             return record[field][:10]
     return date.today().isoformat()
@@ -205,78 +208,111 @@ def _extract_strain(rec: dict) -> dict:
     }
 
 
-def fetch_recovery(conn, target_date: str = None) -> dict:
+def _fetch_endpoint(conn, path: str, target_date: str, extractor) -> dict:
+    """Generic fetch: try target date, then expand window to prev day, then latest."""
     token = _get_valid_token(conn)
     if not token:
         return {"error": "Not authenticated. Call whoop_start_auth first."}
 
     d = target_date or date.today().isoformat()
-    start = f"{d}T00:00:00.000Z"
-    end = f"{(date.fromisoformat(d) + timedelta(days=1)).isoformat()}T23:59:59.999Z"
+    target = date.fromisoformat(d)
 
-    records = _paginate_all(token, "/recovery", start, end)
-    if not records:
-        data = _api_get(token, "/recovery", {"limit": 10})
-        records = data.get("records", [])
-        records = [r for r in records if _extract_date_from_record(r) == d]
+    # Try: target day + next day (WHOOP cycles span midnight)
+    start = f"{(target - timedelta(days=1)).isoformat()}T12:00:00.000Z"
+    end = f"{(target + timedelta(days=1)).isoformat()}T23:59:59.999Z"
 
-    if not records:
-        return {"date": d, "data": None, "message": "No recovery data"}
+    records = _paginate_all(token, path, start, end)
 
-    result = _extract_recovery(records[0])
+    # Find best matching record for our target date
+    # WHOOP cycles start evening before, so check both target and previous day
+    best = None
+    for r in records:
+        rec_date = _extract_date_from_record(r)
+        if rec_date == d:
+            best = r
+            break
+        # Also accept previous day's record (recovery scored in morning = prev day's cycle)
+        if rec_date == (target - timedelta(days=1)).isoformat():
+            if best is None:
+                best = r
+
+    # Fallback: get latest records and find closest match
+    if not best and not records:
+        data = _api_get(token, path, {"limit": 5})
+        fallback = data.get("records", [])
+        for r in fallback:
+            rec_date = _extract_date_from_record(r)
+            if rec_date == d or rec_date == (target - timedelta(days=1)).isoformat():
+                best = r
+                break
+        if not best and fallback:
+            best = fallback[0]  # just use the latest
+
+    if not best:
+        return {"date": d, "data": None, "message": f"No data for {path}"}
+
+    result = extractor(best)
     result["date"] = d
+    result["source_date"] = _extract_date_from_record(best)
     return result
 
 
+def fetch_recovery(conn, target_date: str = None) -> dict:
+    return _fetch_endpoint(conn, "/recovery", target_date or date.today().isoformat(), _extract_recovery)
+
+
 def fetch_sleep(conn, target_date: str = None) -> dict:
+    d = target_date or date.today().isoformat()
+
+    def extract_main_sleep(records_or_rec):
+        # If called from _fetch_endpoint, it passes a single record
+        return _extract_sleep(records_or_rec)
+
     token = _get_valid_token(conn)
     if not token:
         return {"error": "Not authenticated. Call whoop_start_auth first."}
 
-    d = target_date or date.today().isoformat()
-    start = f"{d}T00:00:00.000Z"
-    end = f"{(date.fromisoformat(d) + timedelta(days=1)).isoformat()}T23:59:59.999Z"
+    target = date.fromisoformat(d)
+    start = f"{(target - timedelta(days=1)).isoformat()}T12:00:00.000Z"
+    end = f"{(target + timedelta(days=1)).isoformat()}T23:59:59.999Z"
 
     records = _paginate_all(token, "/activity/sleep", start, end)
-    if not records:
-        data = _api_get(token, "/activity/sleep", {"limit": 10})
-        records = data.get("records", [])
-        records = [r for r in records if _extract_date_from_record(r) == d]
 
-    # Filter out naps, get main sleep only
-    main_sleep = [r for r in records if not r.get("nap", False)]
-    if not main_sleep:
-        main_sleep = records  # fallback to whatever we have
+    # Filter naps
+    main_records = [r for r in records if not r.get("nap", False)]
+    if not main_records:
+        main_records = records
 
-    if not main_sleep:
+    # Find best match
+    best = None
+    for r in main_records:
+        rec_date = _extract_date_from_record(r)
+        if rec_date == d:
+            best = r
+            break
+        if rec_date == (target - timedelta(days=1)).isoformat() and best is None:
+            best = r
+
+    if not best and not main_records:
+        data = _api_get(token, "/activity/sleep", {"limit": 5})
+        fallback = [r for r in data.get("records", []) if not r.get("nap", False)]
+        if fallback:
+            best = fallback[0]
+
+    if not best and main_records:
+        best = main_records[0]
+
+    if not best:
         return {"date": d, "data": None, "message": "No sleep data"}
 
-    result = _extract_sleep(main_sleep[0])
+    result = _extract_sleep(best)
     result["date"] = d
+    result["source_date"] = _extract_date_from_record(best)
     return result
 
 
 def fetch_strain(conn, target_date: str = None) -> dict:
-    token = _get_valid_token(conn)
-    if not token:
-        return {"error": "Not authenticated. Call whoop_start_auth first."}
-
-    d = target_date or date.today().isoformat()
-    start = f"{d}T00:00:00.000Z"
-    end = f"{(date.fromisoformat(d) + timedelta(days=1)).isoformat()}T23:59:59.999Z"
-
-    records = _paginate_all(token, "/cycle", start, end)
-    if not records:
-        data = _api_get(token, "/cycle", {"limit": 10})
-        records = data.get("records", [])
-        records = [r for r in records if _extract_date_from_record(r) == d]
-
-    if not records:
-        return {"date": d, "data": None, "message": "No cycle data"}
-
-    result = _extract_strain(records[0])
-    result["date"] = d
-    return result
+    return _fetch_endpoint(conn, "/cycle", target_date or date.today().isoformat(), _extract_strain)
 
 
 def fetch_all_daily(conn, target_date: str = None) -> dict:
@@ -290,17 +326,19 @@ def fetch_all_daily(conn, target_date: str = None) -> dict:
     sleep = fetch_sleep(conn, d)
     strain = fetch_strain(conn, d)
 
-    # Merge everything into one dict
     result = {"date": d}
+
     # Recovery fields
     for key in ["recovery_score", "hrv", "rhr", "spo2", "skin_temp"]:
         result[key] = recovery.get(key)
+
     # Sleep fields
     for key in ["sleep_hours", "sleep_performance", "sleep_efficiency", "sleep_consistency",
                  "respiratory_rate", "rem_hours", "deep_sleep_hours", "light_sleep_hours",
                  "time_in_bed_hours", "disturbances", "sleep_cycles",
                  "sleep_needed_hours", "sleep_debt_hours"]:
         result[key] = sleep.get(key)
+
     # Strain fields
     for key in ["strain", "calories_burned", "avg_hr", "max_hr"]:
         result[key] = strain.get(key)
