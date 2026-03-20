@@ -94,17 +94,33 @@ def _get_valid_token(conn) -> str:
     _bootstrap_from_env(conn)
     row = conn.execute("SELECT * FROM whoop_tokens WHERE id = 1").fetchone()
     if not row:
+        print("WHOOP: No tokens in DB")
         return None
-    expires_at = datetime.fromisoformat(row["expires_at"])
+
+    expires_at_str = row["expires_at"]
+    # Handle both string and datetime objects (Postgres returns datetime)
+    if isinstance(expires_at_str, str):
+        expires_at = datetime.fromisoformat(expires_at_str)
+    else:
+        expires_at = expires_at_str
+
     if expires_at.tzinfo is None:
         expires_at = expires_at.replace(tzinfo=timezone.utc)
-    if datetime.now(timezone.utc) < expires_at - timedelta(minutes=1):
+
+    now = datetime.now(timezone.utc)
+    if now < expires_at - timedelta(minutes=1):
+        print(f"WHOOP: Token valid until {expires_at}")
         return row["access_token"]
+
+    # Token expired, try refresh
+    print(f"WHOOP: Token expired at {expires_at}, refreshing...")
     try:
         data = _refresh_tokens(row["refresh_token"])
         save_tokens(conn, data)
+        print("WHOOP: Token refreshed successfully")
         return data["access_token"]
-    except Exception:
+    except Exception as e:
+        print(f"WHOOP: Token refresh FAILED: {e}")
         return None
 
 
