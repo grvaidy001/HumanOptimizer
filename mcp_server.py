@@ -981,6 +981,25 @@ def whoop_status() -> dict:
     return {"connected": connected}
 
 
+@mcp.tool()
+def whoop_get_refresh_token() -> dict:
+    """Get the current WHOOP refresh token so you can save it as an env var.
+
+    After connecting WHOOP, call this to get the refresh token.
+    Then add WHOOP_REFRESH_TOKEN to your Render environment variables.
+    This way WHOOP stays connected even after redeployments.
+    """
+    conn = get_connection()
+    row = conn.execute("SELECT refresh_token FROM whoop_tokens WHERE id = 1").fetchone()
+    conn.close()
+    if not row:
+        return {"error": "No WHOOP tokens found. Connect WHOOP first."}
+    return {
+        "refresh_token": row["refresh_token"],
+        "instruction": "Add this as WHOOP_REFRESH_TOKEN in your Render environment variables."
+    }
+
+
 # ============================================================
 # POWER LIST CRUD
 # ============================================================

@@ -77,8 +77,27 @@ def save_tokens(conn, token_data: dict):
     conn.commit()
 
 
+def _bootstrap_from_env(conn):
+    """If DB has no tokens but env vars do, seed from env (survives redeploys)."""
+    row = conn.execute("SELECT * FROM whoop_tokens WHERE id = 1").fetchone()
+    if row:
+        return  # Already have tokens
+
+    refresh = os.getenv("WHOOP_REFRESH_TOKEN", "")
+    if not refresh:
+        return
+
+    try:
+        data = _refresh_tokens(refresh)
+        save_tokens(conn, data)
+    except Exception:
+        pass
+
+
 def _get_valid_token(conn) -> str:
     """Get valid access token, auto-refreshing if needed."""
+    _bootstrap_from_env(conn)
+
     row = conn.execute("SELECT * FROM whoop_tokens WHERE id = 1").fetchone()
     if not row:
         return None
