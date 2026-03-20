@@ -121,6 +121,31 @@ def _api_get(token: str, path: str, params: dict = None) -> dict:
     return resp.json()
 
 
+def _paginate_all(token: str, path: str, start: str, end: str) -> list:
+    """Fetch all records from a paginated WHOOP endpoint."""
+    all_records = []
+    params = {"start": start, "end": end, "limit": 25}
+    while True:
+        data = _api_get(token, path, params)
+        if "error" in data:
+            break
+        records = data.get("records", [])
+        all_records.extend(records)
+        next_token = data.get("next_token")
+        if not next_token or not records:
+            break
+        params["nextToken"] = next_token
+    return all_records
+
+
+def _extract_date_from_record(record: dict) -> str:
+    """Extract the calendar date from a WHOOP record's start/created_at timestamp."""
+    for field in ["start", "created_at"]:
+        if field in record and record[field]:
+            return record[field][:10]
+    return date.today().isoformat()
+
+
 def fetch_recovery(conn, target_date: str = None) -> dict:
     """Fetch recovery data for a date."""
     token = _get_valid_token(conn)
@@ -129,14 +154,21 @@ def fetch_recovery(conn, target_date: str = None) -> dict:
 
     d = target_date or date.today().isoformat()
     start = f"{d}T00:00:00.000Z"
-    end = f"{(date.fromisoformat(d) + timedelta(days=1)).isoformat()}T00:00:00.000Z"
+    end = f"{(date.fromisoformat(d) + timedelta(days=1)).isoformat()}T23:59:59.999Z"
 
-    data = _api_get(token, "/recovery", {"start": start, "end": end, "limit": 1})
-    records = data.get("records", [])
+    records = _paginate_all(token, "/recovery", start, end)
+    if not records:
+        # Try without date filter and find matching date
+        data = _api_get(token, "/recovery", {"limit": 10})
+        records = data.get("records", [])
+        # Find record matching our target date
+        records = [r for r in records if _extract_date_from_record(r) == d]
+
     if not records:
         return {"date": d, "data": None, "message": "No recovery data"}
 
-    score = records[0].get("score", {})
+    rec = records[0]
+    score = rec.get("score", {})
     return {
         "date": d,
         "recovery_score": score.get("recovery_score"),
@@ -155,10 +187,14 @@ def fetch_sleep(conn, target_date: str = None) -> dict:
 
     d = target_date or date.today().isoformat()
     start = f"{d}T00:00:00.000Z"
-    end = f"{(date.fromisoformat(d) + timedelta(days=1)).isoformat()}T00:00:00.000Z"
+    end = f"{(date.fromisoformat(d) + timedelta(days=1)).isoformat()}T23:59:59.999Z"
 
-    data = _api_get(token, "/activity/sleep", {"start": start, "end": end, "limit": 1})
-    records = data.get("records", [])
+    records = _paginate_all(token, "/activity/sleep", start, end)
+    if not records:
+        data = _api_get(token, "/activity/sleep", {"limit": 10})
+        records = data.get("records", [])
+        records = [r for r in records if _extract_date_from_record(r) == d]
+
     if not records:
         return {"date": d, "data": None, "message": "No sleep data"}
 
@@ -187,10 +223,14 @@ def fetch_strain(conn, target_date: str = None) -> dict:
 
     d = target_date or date.today().isoformat()
     start = f"{d}T00:00:00.000Z"
-    end = f"{(date.fromisoformat(d) + timedelta(days=1)).isoformat()}T00:00:00.000Z"
+    end = f"{(date.fromisoformat(d) + timedelta(days=1)).isoformat()}T23:59:59.999Z"
 
-    data = _api_get(token, "/cycle", {"start": start, "end": end, "limit": 1})
-    records = data.get("records", [])
+    records = _paginate_all(token, "/cycle", start, end)
+    if not records:
+        data = _api_get(token, "/cycle", {"limit": 10})
+        records = data.get("records", [])
+        records = [r for r in records if _extract_date_from_record(r) == d]
+
     if not records:
         return {"date": d, "data": None, "message": "No cycle data"}
 
@@ -230,3 +270,69 @@ def fetch_all_daily(conn, target_date: str = None) -> dict:
         "avg_hr": strain.get("avg_hr"),
         "max_hr": strain.get("max_hr"),
     }
+
+
+def fetch_bulk(conn, days: int = 10) -> list:
+    """Fetch all WHOOP data for the last N days in bulk (fewer API calls)."""
+    token = _get_valid_token(conn)
+    if not token:
+        return [{"error": "Not authenticated"}]
+
+    end_d = date.today()
+    start_d = end_d - timedelta(days=days)
+    start = f"{start_d.isoformat()}T00:00:00.000Z"
+    end = f"{(end_d + timedelta(days=1)).isoformat()}T00:00:00.000Z"
+
+    # Fetch all data in bulk
+    recovery_records = _paginate_all(token, "/recovery", start, end)
+    sleep_records = _paginate_all(token, "/activity/sleep", start, end)
+    cycle_records = _paginate_all(token, "/cycle", start, end)
+
+    # Index by date
+    recovery_by_date = {}
+    for r in recovery_records:
+        d = _extract_date_from_record(r)
+        if r.get("score"):
+            recovery_by_date[d] = r["score"]
+
+    sleep_by_date = {}
+    for r in sleep_records:
+        d = _extract_date_from_record(r)
+        if r.get("score"):
+            sleep_by_date[d] = r["score"]
+
+    strain_by_date = {}
+    for r in cycle_records:
+        d = _extract_date_from_record(r)
+        if r.get("score"):
+            strain_by_date[d] = r["score"]
+
+    # Build unified daily records
+    all_dates = set(list(recovery_by_date.keys()) + list(sleep_by_date.keys()) + list(strain_by_date.keys()))
+    results = []
+    for d in sorted(all_dates):
+        rec = recovery_by_date.get(d, {})
+        slp = sleep_by_date.get(d, {})
+        stages = slp.get("stage_summary", {})
+        cyl = strain_by_date.get(d, {})
+
+        total_sleep_ms = (stages.get("total_in_bed_time_milli", 0)
+                          - stages.get("total_awake_time_milli", 0))
+
+        results.append({
+            "date": d,
+            "recovery_score": rec.get("recovery_score"),
+            "hrv": rec.get("hrv_rmssd_milli"),
+            "rhr": rec.get("resting_heart_rate"),
+            "spo2": rec.get("spo2_percentage"),
+            "skin_temp": rec.get("skin_temp_celsius"),
+            "sleep_hours": round(total_sleep_ms / 3600000, 1) if total_sleep_ms else None,
+            "sleep_performance": slp.get("sleep_performance_percentage"),
+            "respiratory_rate": slp.get("respiratory_rate"),
+            "strain": cyl.get("strain"),
+            "calories_burned": round(cyl.get("kilojoule", 0) * 0.239006) if cyl.get("kilojoule") else None,
+            "avg_hr": cyl.get("average_heart_rate"),
+            "max_hr": cyl.get("max_heart_rate"),
+        })
+
+    return results
