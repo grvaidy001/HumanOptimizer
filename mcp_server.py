@@ -20,6 +20,7 @@ from dotenv import load_dotenv
 load_dotenv(Path(__file__).parent / ".env")
 
 from mcp.server.fastmcp import FastMCP
+from mcp.server.fastmcp.server import TransportSecuritySettings
 
 from app.db import init_db, get_connection, sync_if_turso
 from app.coach import generate_daily_plan
@@ -29,10 +30,20 @@ init_db()
 
 # Remote mode: stateless HTTP for cloud deployment
 IS_REMOTE = os.getenv("MCP_TRANSPORT", "stdio") == "http"
+RENDER_HOST = os.getenv("RENDER_EXTERNAL_HOSTNAME", "humanoptimizer.onrender.com")
+
+# Allow the Render hostname when running remotely
+transport_security = None
+if IS_REMOTE:
+    transport_security = TransportSecuritySettings(
+        enable_dns_rebinding_protection=False,
+    )
 
 mcp = FastMCP(
     "HumanOptimizer",
     stateless_http=IS_REMOTE,
+    host="0.0.0.0" if IS_REMOTE else "127.0.0.1",
+    transport_security=transport_security,
     instructions="""You are connected to HumanOptimizer — a personal execution system.
 
 The user is on an aggressive fat loss journey (~350 lbs, goal: lose 100+ lbs).
