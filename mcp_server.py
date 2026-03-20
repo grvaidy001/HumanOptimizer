@@ -877,6 +877,57 @@ def whoop_fetch_today(target_date: str = "") -> dict:
 
 
 @mcp.tool()
+def whoop_fetch_range(start_date: str, end_date: str = "") -> dict:
+    """Fetch WHOOP data for a date range and save all days to DB.
+
+    Use this to backfill historical data. Example: whoop_fetch_range("2026-03-13", "2026-03-20")
+    """
+    from app.providers.whoop import fetch_all_daily, is_connected
+    conn = get_connection()
+
+    if not is_connected(conn):
+        conn.close()
+        return {"error": "WHOOP not connected. Run whoop_start_auth first."}
+
+    start = date.fromisoformat(start_date)
+    end = date.fromisoformat(end_date) if end_date else date.today()
+    results = []
+    errors = []
+
+    current = start
+    while current <= end:
+        d = current.isoformat()
+        try:
+            data = fetch_all_daily(conn, d)
+            if "error" not in data:
+                conn.execute("""
+                    INSERT OR REPLACE INTO whoop_daily
+                    (date, recovery_score, hrv, rhr, sleep_score, sleep_hours, strain,
+                     calories_burned, avg_hr, max_hr, respiratory_rate, spo2, skin_temp, raw_json)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """, (d, data.get("recovery_score"), data.get("hrv"), data.get("rhr"),
+                      data.get("sleep_performance"), data.get("sleep_hours"), data.get("strain"),
+                      data.get("calories_burned"), data.get("avg_hr"), data.get("max_hr"),
+                      data.get("respiratory_rate"), data.get("spo2"), data.get("skin_temp"),
+                      json.dumps(data)))
+                conn.commit()
+                results.append({"date": d, "recovery": data.get("recovery_score"),
+                                "hrv": data.get("hrv"), "strain": data.get("strain")})
+            else:
+                errors.append({"date": d, "reason": data.get("message", "no data")})
+        except Exception as e:
+            errors.append({"date": d, "reason": str(e)})
+
+        current += timedelta(days=1)
+
+    sync_if_turso(conn)
+    conn.close()
+
+    return {"days_saved": len(results), "days_failed": len(errors),
+            "results": results, "errors": errors}
+
+
+@mcp.tool()
 def whoop_status() -> dict:
     """Check if WHOOP is connected and tokens are valid."""
     from app.providers.whoop import is_connected, CLIENT_ID
