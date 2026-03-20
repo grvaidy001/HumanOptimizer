@@ -1006,29 +1006,49 @@ def whoop_summary(days: int = 90) -> dict:
 
 
 @mcp.tool()
-def whoop_debug() -> dict:
-    """Debug WHOOP API — fetch latest data without date filters to verify connection works."""
-    from app.providers.whoop import _get_valid_token, _api_get
+def whoop_debug(days_back: int = 3) -> dict:
+    """Debug WHOOP API — fetch raw data from all endpoints to diagnose missing fields.
+
+    Returns the FULL raw API response for recovery, sleep, and cycles.
+    Use this to see exactly what WHOOP returns.
+    """
+    from app.providers.whoop import _get_valid_token, _api_get, _paginate_all
     conn = get_connection()
     token = _get_valid_token(conn)
     conn.close()
     if not token:
         return {"error": "No valid token"}
 
+    end_d = date.today()
+    start_d = end_d - timedelta(days=days_back)
+    start = f"{start_d.isoformat()}T00:00:00.000Z"
+    end = f"{(end_d + timedelta(days=1)).isoformat()}T23:59:59.999Z"
+
     results = {}
-    for endpoint in ["/recovery", "/cycle", "/activity/sleep"]:
+
+    # Fetch with date range
+    for name, path in [("recovery", "/recovery"), ("sleep", "/activity/sleep"), ("cycles", "/cycle")]:
         try:
-            data = _api_get(token, endpoint, {"limit": 1})
+            data = _api_get(token, path, {"start": start, "end": end, "limit": 5})
             records = data.get("records", [])
-            results[endpoint] = {
-                "status": "ok" if records else "empty",
+            results[f"{name}_with_dates"] = {
                 "count": len(records),
-                "sample": records[0] if records else None,
+                "records": records,
             }
-            if "error" in data:
-                results[endpoint] = {"status": "error", "detail": data}
         except Exception as e:
-            results[endpoint] = {"status": "error", "detail": str(e)}
+            results[f"{name}_with_dates"] = {"error": str(e)}
+
+    # Also fetch latest without date filter
+    for name, path in [("recovery", "/recovery"), ("sleep", "/activity/sleep"), ("cycles", "/cycle")]:
+        try:
+            data = _api_get(token, path, {"limit": 2})
+            records = data.get("records", [])
+            results[f"{name}_latest"] = {
+                "count": len(records),
+                "records": records,
+            }
+        except Exception as e:
+            results[f"{name}_latest"] = {"error": str(e)}
 
     # Also try profile
     try:
