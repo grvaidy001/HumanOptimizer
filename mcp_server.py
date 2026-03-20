@@ -1345,6 +1345,279 @@ def delete_routine(name: str) -> dict:
 
 
 # ============================================================
+# DAILY EXECUTION SCORE
+# ============================================================
+
+@mcp.tool()
+def score_day(
+    power_list_score: float = 0,
+    discipline_score: float = 0,
+    nutrition_score: float = 0,
+    training_score: float = 0,
+    recovery_score: float = 0,
+    communication_score: float = 0,
+    wins: str = "",
+    losses: str = "",
+    lessons: str = "",
+    target_date: str = "",
+) -> dict:
+    """Score the day's execution (0-100 for each category).
+
+    Categories:
+    - power_list_score: % of power list completed (auto-calculated if not provided)
+    - discipline_score: diet adherence, water, 75 Hard compliance
+    - nutrition_score: hit protein target, stayed in calorie range
+    - training_score: workout quality, intensity appropriate for recovery
+    - recovery_score: sleep quality, stress management, recovery protocols
+    - communication_score: practiced communication skills
+
+    wins/losses/lessons: text summaries of the day
+
+    Total score = weighted average:
+      Power List 25%, Discipline 20%, Nutrition 20%, Training 15%, Recovery 10%, Communication 10%
+
+    Grading: A (90+), B (80-89), C (70-79), D (60-69), F (<60)
+    Target: 85%+ consistently (12 Week Year standard)
+    """
+    d = target_date or date.today().isoformat()
+
+    # Auto-calculate power list score if not provided
+    if power_list_score == 0:
+        conn = get_connection()
+        pl = conn.execute("SELECT completed_count FROM power_list WHERE date = ?", (d,)).fetchone()
+        if pl:
+            power_list_score = pl["completed_count"] / 5 * 100
+        conn.close()
+
+    total = (
+        power_list_score * 0.25 +
+        discipline_score * 0.20 +
+        nutrition_score * 0.20 +
+        training_score * 0.15 +
+        recovery_score * 0.10 +
+        communication_score * 0.10
+    )
+    total = round(total, 1)
+
+    if total >= 90: grade = "A"
+    elif total >= 80: grade = "B"
+    elif total >= 70: grade = "C"
+    elif total >= 60: grade = "D"
+    else: grade = "F"
+
+    conn = get_connection()
+    conn.execute("""
+        INSERT OR REPLACE INTO daily_scores
+        (date, power_list_score, discipline_score, nutrition_score, training_score,
+         recovery_score, communication_score, total_score, grade, wins, losses, lessons)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    """, (d, power_list_score, discipline_score, nutrition_score, training_score,
+          recovery_score, communication_score, total, grade, wins, losses, lessons))
+    conn.commit()
+    sync_if_turso(conn)
+    conn.close()
+
+    return {
+        "date": d,
+        "scores": {
+            "power_list": power_list_score,
+            "discipline": discipline_score,
+            "nutrition": nutrition_score,
+            "training": training_score,
+            "recovery": recovery_score,
+            "communication": communication_score,
+        },
+        "total": total,
+        "grade": grade,
+        "target": "85%+",
+        "on_target": total >= 85,
+    }
+
+
+@mcp.tool()
+def get_daily_score(target_date: str = "") -> dict:
+    """Get the execution score for a specific day."""
+    d = target_date or date.today().isoformat()
+    conn = get_connection()
+    row = conn.execute("SELECT * FROM daily_scores WHERE date = ?", (d,)).fetchone()
+    conn.close()
+    if not row:
+        return {"date": d, "message": "No score recorded for this day"}
+    return dict(row)
+
+
+@mcp.tool()
+def get_score_history(days: int = 30) -> dict:
+    """Get daily execution scores for the last N days with trend analysis."""
+    conn = get_connection()
+    cutoff = (date.today() - timedelta(days=days)).isoformat()
+    rows = conn.execute(
+        "SELECT * FROM daily_scores WHERE date >= ? ORDER BY date", (cutoff,)
+    ).fetchall()
+    conn.close()
+
+    scores = [dict(r) for r in rows]
+    if scores:
+        totals = [s["total_score"] for s in scores]
+        avg = round(sum(totals) / len(totals), 1)
+        on_target_days = sum(1 for t in totals if t >= 85)
+        a_days = sum(1 for s in scores if s["grade"] == "A")
+        f_days = sum(1 for s in scores if s["grade"] == "F")
+    else:
+        avg = 0
+        on_target_days = a_days = f_days = 0
+
+    return {
+        "scores": scores,
+        "average": avg,
+        "on_target_pct": round(on_target_days / len(scores) * 100) if scores else 0,
+        "a_days": a_days,
+        "f_days": f_days,
+        "days_tracked": len(scores),
+        "target": "85%+",
+    }
+
+
+# ============================================================
+# 12 WEEK YEAR
+# ============================================================
+
+@mcp.tool()
+def create_12_week_year(
+    name: str,
+    goals: str,
+    start_date: str = "",
+) -> dict:
+    """Start a new 12 Week Year cycle.
+
+    goals should be a JSON string of goals with weekly actions:
+    [
+        {
+            "goal": "Lose 30 lbs",
+            "weekly_actions": ["Hit calorie target 7/7 days", "Train 6/7 days", "Walk 45 min daily"]
+        },
+        {
+            "goal": "Build communication skills",
+            "weekly_actions": ["Practice 30 min 5/7 days", "Record and review 1 speech/week"]
+        }
+    ]
+
+    The 12 Week Year philosophy: execute at 85%+ of planned actions weekly.
+    Week score = completed_actions / planned_actions * 100
+    """
+    s = start_date or date.today().isoformat()
+    e = (date.fromisoformat(s) + timedelta(weeks=12)).isoformat()
+
+    conn = get_connection()
+    # Deactivate any active 12 week year
+    conn.execute("UPDATE twelve_week_years SET status = 'completed' WHERE status = 'active'")
+    conn.execute("""
+        INSERT INTO twelve_week_years (name, start_date, end_date, goals)
+        VALUES (?, ?, ?, ?)
+    """, (name, s, e, goals))
+    conn.commit()
+    cycle_id = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
+    sync_if_turso(conn)
+    conn.close()
+
+    return {"id": cycle_id, "name": name, "start": s, "end": e, "weeks": 12}
+
+
+@mcp.tool()
+def log_12_week_score(
+    week_number: int,
+    planned_actions: int,
+    completed_actions: int,
+    notes: str = "",
+) -> dict:
+    """Log weekly score for the active 12 Week Year.
+
+    week_number: 1-12
+    planned_actions: total actions planned this week
+    completed_actions: how many you actually did
+    Score = completed / planned * 100. Target: 85%+
+    """
+    conn = get_connection()
+    active = conn.execute(
+        "SELECT * FROM twelve_week_years WHERE status = 'active' ORDER BY created_at DESC LIMIT 1"
+    ).fetchone()
+    if not active:
+        conn.close()
+        return {"error": "No active 12 Week Year. Create one first."}
+
+    score = round(completed_actions / planned_actions * 100, 1) if planned_actions > 0 else 0
+
+    conn.execute("""
+        INSERT OR REPLACE INTO twelve_week_scores
+        (twelve_week_id, week_number, planned_actions, completed_actions, score, notes)
+        VALUES (?, ?, ?, ?, ?, ?)
+    """, (active["id"], week_number, planned_actions, completed_actions, score, notes))
+    conn.commit()
+    sync_if_turso(conn)
+    conn.close()
+
+    return {
+        "week": week_number,
+        "planned": planned_actions,
+        "completed": completed_actions,
+        "score": score,
+        "on_target": score >= 85,
+        "grade": "ON TRACK" if score >= 85 else "BELOW TARGET",
+    }
+
+
+@mcp.tool()
+def get_12_week_progress() -> dict:
+    """Get the current 12 Week Year progress — all weekly scores, trend, and projection."""
+    conn = get_connection()
+    active = conn.execute(
+        "SELECT * FROM twelve_week_years WHERE status = 'active' ORDER BY created_at DESC LIMIT 1"
+    ).fetchone()
+    if not active:
+        conn.close()
+        return {"message": "No active 12 Week Year"}
+
+    weeks = conn.execute(
+        "SELECT * FROM twelve_week_scores WHERE twelve_week_id = ? ORDER BY week_number",
+        (active["id"],)
+    ).fetchall()
+    conn.close()
+
+    week_data = [dict(w) for w in weeks]
+    scores = [w["score"] for w in week_data]
+
+    if scores:
+        avg = round(sum(scores) / len(scores), 1)
+        on_target_weeks = sum(1 for s in scores if s >= 85)
+        current_week = len(scores)
+        trend = "improving" if len(scores) > 1 and scores[-1] > scores[0] else "declining" if len(scores) > 1 else "starting"
+    else:
+        avg = 0
+        on_target_weeks = 0
+        current_week = 0
+        trend = "not started"
+
+    try:
+        goals = json.loads(active["goals"])
+    except json.JSONDecodeError:
+        goals = active["goals"]
+
+    return {
+        "name": active["name"],
+        "start": active["start_date"],
+        "end": active["end_date"],
+        "current_week": current_week,
+        "weeks_remaining": 12 - current_week,
+        "goals": goals,
+        "weekly_scores": week_data,
+        "average_score": avg,
+        "on_target_weeks": on_target_weeks,
+        "trend": trend,
+        "overall_grade": "ON TRACK" if avg >= 85 else "BELOW TARGET",
+    }
+
+
+# ============================================================
 # MEAL TRACKING
 # ============================================================
 

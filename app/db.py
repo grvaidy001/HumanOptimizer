@@ -271,6 +271,44 @@ SCHEMA = """
         updated_at TEXT DEFAULT (datetime('now'))
     );
 
+    CREATE TABLE IF NOT EXISTS daily_scores (
+        date TEXT PRIMARY KEY,
+        power_list_score REAL DEFAULT 0,
+        discipline_score REAL DEFAULT 0,
+        nutrition_score REAL DEFAULT 0,
+        training_score REAL DEFAULT 0,
+        recovery_score REAL DEFAULT 0,
+        communication_score REAL DEFAULT 0,
+        total_score REAL DEFAULT 0,
+        grade TEXT DEFAULT '',
+        wins TEXT DEFAULT '',
+        losses TEXT DEFAULT '',
+        lessons TEXT DEFAULT '',
+        created_at TEXT DEFAULT (datetime('now'))
+    );
+
+    CREATE TABLE IF NOT EXISTS twelve_week_years (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT NOT NULL,
+        start_date TEXT NOT NULL,
+        end_date TEXT NOT NULL,
+        goals TEXT NOT NULL,
+        status TEXT DEFAULT 'active',
+        created_at TEXT DEFAULT (datetime('now'))
+    );
+
+    CREATE TABLE IF NOT EXISTS twelve_week_scores (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        twelve_week_id INTEGER NOT NULL,
+        week_number INTEGER NOT NULL,
+        planned_actions INTEGER DEFAULT 0,
+        completed_actions INTEGER DEFAULT 0,
+        score REAL DEFAULT 0,
+        notes TEXT DEFAULT '',
+        created_at TEXT DEFAULT (datetime('now')),
+        FOREIGN KEY (twelve_week_id) REFERENCES twelve_week_years(id)
+    );
+
     CREATE TABLE IF NOT EXISTS meals (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         date TEXT NOT NULL,
