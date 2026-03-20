@@ -128,9 +128,16 @@ async def whoop_callback(request: Request):
         save_tokens(conn, token_data)
         sync_if_turso(conn)
         conn.close()
+
+        # Show refresh token on the page so user can save it to Render env vars
+        refresh = token_data.get("refresh_token", "")
         return HTMLResponse(
             "<h1>WHOOP Connected!</h1>"
-            "<p>Your WHOOP account is now linked. You can close this window.</p>"
+            "<p>Your WHOOP account is now linked.</p>"
+            "<h2>IMPORTANT: Save this refresh token to Render env vars</h2>"
+            "<p>Add this as <b>WHOOP_REFRESH_TOKEN</b> in Render → Environment:</p>"
+            f"<pre style='background:#222;color:#0f0;padding:10px;word-break:break-all'>{refresh}</pre>"
+            "<p>This ensures WHOOP stays connected after redeployments.</p>"
         )
     except Exception as e:
         return HTMLResponse(f"<h1>Error</h1><p>{str(e)}</p>")
