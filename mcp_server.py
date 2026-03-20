@@ -15,6 +15,10 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
 
+# Load .env file if it exists (local dev)
+from dotenv import load_dotenv
+load_dotenv(Path(__file__).parent / ".env")
+
 from mcp.server.fastmcp import FastMCP
 
 from app.db import init_db, get_connection, sync_if_turso
