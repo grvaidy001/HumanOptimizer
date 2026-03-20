@@ -1241,6 +1241,110 @@ def delete_goal(goal_id: int) -> dict:
 
 
 # ============================================================
+# DAILY ROUTINE
+# ============================================================
+
+@mcp.tool()
+def save_routine(
+    schedule: str,
+    name: str = "default",
+    notes: str = "",
+) -> dict:
+    """Save a daily routine/schedule. The schedule should be a JSON string of time blocks:
+
+    [
+        {"time": "04:30", "activity": "Wake up"},
+        {"time": "04:45", "activity": "Prayer / Gratitude"},
+        {"time": "05:00", "activity": "Pre-workout + Creatine"},
+        {"time": "05:15", "activity": "Gym - Strength Training", "duration": 60},
+        {"time": "06:15", "activity": "Post-workout walk", "duration": 45},
+        {"time": "07:00", "activity": "Shower + Get ready"},
+        {"time": "08:00", "activity": "Work"},
+        {"time": "12:00", "activity": "OMAD meal"},
+        {"time": "13:00", "activity": "Work"},
+        {"time": "17:00", "activity": "Evening walk (weighted vest)", "duration": 45},
+        {"time": "18:00", "activity": "Communication practice", "duration": 30},
+        {"time": "18:30", "activity": "Reading", "duration": 30},
+        {"time": "19:00", "activity": "Family time"},
+        {"time": "21:00", "activity": "Wind down + Sleep prep"},
+        {"time": "21:30", "activity": "Sleep"}
+    ]
+
+    You can save multiple routines (e.g., 'training_day', 'rest_day', 'refeed_day').
+    """
+    conn = get_connection()
+    # Deactivate any existing routine with same name
+    conn.execute("UPDATE daily_routines SET active = 0 WHERE name = ?", (name,))
+    conn.execute("""
+        INSERT INTO daily_routines (name, schedule, notes)
+        VALUES (?, ?, ?)
+    """, (name, schedule, notes))
+    conn.commit()
+    sync_if_turso(conn)
+    conn.close()
+
+    try:
+        blocks = json.loads(schedule)
+        count = len(blocks)
+    except json.JSONDecodeError:
+        count = 0
+
+    return {"name": name, "blocks": count, "saved": True}
+
+
+@mcp.tool()
+def get_routine(name: str = "") -> dict:
+    """Get the active daily routine. If name is provided, gets that specific routine.
+    Otherwise returns the default active routine.
+
+    Use this at the start of each day to know the user's planned schedule.
+    """
+    conn = get_connection()
+    if name:
+        row = conn.execute(
+            "SELECT * FROM daily_routines WHERE name = ? AND active = 1 ORDER BY created_at DESC LIMIT 1",
+            (name,)
+        ).fetchone()
+    else:
+        row = conn.execute(
+            "SELECT * FROM daily_routines WHERE active = 1 ORDER BY created_at DESC LIMIT 1"
+        ).fetchone()
+    conn.close()
+
+    if not row:
+        return {"message": "No routine saved yet. Use save_routine to create one."}
+
+    try:
+        schedule = json.loads(row["schedule"])
+    except json.JSONDecodeError:
+        schedule = row["schedule"]
+
+    return {"name": row["name"], "schedule": schedule, "notes": row["notes"]}
+
+
+@mcp.tool()
+def list_routines() -> list:
+    """List all saved routines (active and inactive)."""
+    conn = get_connection()
+    rows = conn.execute(
+        "SELECT id, name, active, notes, created_at FROM daily_routines ORDER BY active DESC, created_at DESC"
+    ).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+@mcp.tool()
+def delete_routine(name: str) -> dict:
+    """Delete a routine by name."""
+    conn = get_connection()
+    conn.execute("DELETE FROM daily_routines WHERE name = ?", (name,))
+    conn.commit()
+    sync_if_turso(conn)
+    conn.close()
+    return {"deleted": name}
+
+
+# ============================================================
 # MEAL TRACKING
 # ============================================================
 
