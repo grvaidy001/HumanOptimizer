@@ -281,24 +281,56 @@ def _fetch_endpoint(conn, path: str, target_date: str, extractor) -> dict:
 
 
 def fetch_recovery(conn, target_date: str = None) -> dict:
-    return _fetch_endpoint(conn, "/recovery", target_date or date.today().isoformat(), _extract_recovery)
-
-
-def fetch_sleep(conn, target_date: str = None) -> dict:
-    d = target_date or date.today().isoformat()
-
-    def extract_main_sleep(records_or_rec):
-        # If called from _fetch_endpoint, it passes a single record
-        return _extract_sleep(records_or_rec)
-
+    """Fetch recovery — tries collection endpoint first, then per-cycle fallback."""
     token = _get_valid_token(conn)
     if not token:
         return {"error": "Not authenticated. Call whoop_start_auth first."}
 
+    d = target_date or date.today().isoformat()
+
+    # Try collection endpoint first
+    result = _fetch_endpoint(conn, "/recovery", d, _extract_recovery)
+    if result.get("recovery_score") is not None:
+        return result
+
+    # Fallback: get cycle ID for this date, then fetch recovery per-cycle
+    print(f"WHOOP: Recovery collection empty for {d}, trying per-cycle fallback")
     target = date.fromisoformat(d)
     start = f"{(target - timedelta(days=1)).isoformat()}T12:00:00.000Z"
     end = f"{(target + timedelta(days=1)).isoformat()}T23:59:59.999Z"
 
+    cycles = _paginate_all(token, "/cycle", start, end)
+    for cycle in cycles:
+        cycle_id = cycle.get("id")
+        if not cycle_id:
+            continue
+        try:
+            rec_data = _api_get(token, f"/cycle/{cycle_id}/recovery", {})
+            if "error" not in rec_data and rec_data.get("score"):
+                result = _extract_recovery(rec_data)
+                result["date"] = d
+                result["source"] = f"cycle_{cycle_id}"
+                print(f"WHOOP: Got recovery from cycle {cycle_id}")
+                return result
+        except Exception as e:
+            print(f"WHOOP: Per-cycle recovery failed for {cycle_id}: {e}")
+            continue
+
+    return {"date": d, "data": None, "message": "No recovery data (tried collection + per-cycle)"}
+
+
+def fetch_sleep(conn, target_date: str = None) -> dict:
+    """Fetch sleep — tries collection endpoint, then per-sleep-id from recovery."""
+    token = _get_valid_token(conn)
+    if not token:
+        return {"error": "Not authenticated. Call whoop_start_auth first."}
+
+    d = target_date or date.today().isoformat()
+    target = date.fromisoformat(d)
+    start = f"{(target - timedelta(days=1)).isoformat()}T12:00:00.000Z"
+    end = f"{(target + timedelta(days=1)).isoformat()}T23:59:59.999Z"
+
+    # Try collection endpoint
     records = _paginate_all(token, "/activity/sleep", start, end)
 
     # Filter naps
@@ -325,13 +357,35 @@ def fetch_sleep(conn, target_date: str = None) -> dict:
     if not best and main_records:
         best = main_records[0]
 
-    if not best:
-        return {"date": d, "data": None, "message": "No sleep data"}
+    if best:
+        result = _extract_sleep(best)
+        result["date"] = d
+        result["source_date"] = _extract_date_from_record(best)
+        return result
 
-    result = _extract_sleep(best)
-    result["date"] = d
-    result["source_date"] = _extract_date_from_record(best)
-    return result
+    # Fallback: get sleep_id from recovery endpoint
+    print(f"WHOOP: Sleep collection empty for {d}, trying recovery->sleep_id fallback")
+    cycles = _paginate_all(token, "/cycle", start, end)
+    for cycle in cycles:
+        cycle_id = cycle.get("id")
+        if not cycle_id:
+            continue
+        try:
+            rec_data = _api_get(token, f"/cycle/{cycle_id}/recovery", {})
+            sleep_id = rec_data.get("sleep_id")
+            if sleep_id:
+                sleep_data = _api_get(token, f"/activity/sleep/{sleep_id}", {})
+                if "error" not in sleep_data and sleep_data.get("score"):
+                    result = _extract_sleep(sleep_data)
+                    result["date"] = d
+                    result["source"] = f"sleep_{sleep_id}"
+                    print(f"WHOOP: Got sleep from sleep_id {sleep_id}")
+                    return result
+        except Exception as e:
+            print(f"WHOOP: Per-cycle sleep fallback failed: {e}")
+            continue
+
+    return {"date": d, "data": None, "message": "No sleep data (tried collection + per-cycle)"}
 
 
 def fetch_strain(conn, target_date: str = None) -> dict:
