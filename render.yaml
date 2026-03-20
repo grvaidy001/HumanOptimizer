@@ -3,10 +3,8 @@ services:
     name: humanoptimizer-mcp
     runtime: python
     buildCommand: pip install -r requirements.txt
-    startCommand: python mcp_server.py
+    startCommand: python server.py
     envVars:
-      - key: MCP_TRANSPORT
-        value: http
       - key: PORT
         value: "8000"
     plan: free
