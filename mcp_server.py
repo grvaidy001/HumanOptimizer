@@ -1064,6 +1064,32 @@ def whoop_debug() -> dict:
 
 
 @mcp.tool()
+def whoop_workouts(target_date: str = "", days: int = 7) -> dict:
+    """Get WHOOP workout data with HR zones for analysis.
+
+    Returns: sport type, strain, avg/max HR, calories, duration,
+    and time spent in each HR zone (minutes).
+
+    HR Zones: 0=<50%, 1=50-60%, 2=60-70%, 3=70-80%, 4=80-90%, 5=90-100% of max HR.
+    Use for analyzing if training intensity matches recovery recommendations.
+    """
+    from app.providers.whoop import fetch_workouts, is_connected
+    conn = get_connection()
+    if not is_connected(conn):
+        conn.close()
+        return {"error": "WHOOP not connected"}
+
+    d = target_date or date.today().isoformat()
+    workouts = fetch_workouts(conn, d, days)
+    conn.close()
+
+    if workouts and "error" in workouts[0]:
+        return workouts[0]
+
+    return {"workouts": workouts, "count": len(workouts)}
+
+
+@mcp.tool()
 def whoop_status() -> dict:
     """Check if WHOOP is connected and tokens are valid."""
     from app.providers.whoop import is_connected, CLIENT_ID

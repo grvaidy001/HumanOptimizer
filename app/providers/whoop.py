@@ -259,6 +259,67 @@ def _extract_strain(rec: dict) -> dict:
     }
 
 
+def _extract_workout(rec: dict) -> dict:
+    """Extract workout data including HR zones."""
+    score = rec.get("score") or {}
+    zones = score.get("zone_durations") or {}
+
+    def ms_to_min(ms):
+        return round((ms or 0) / 60000, 1)
+
+    return {
+        "sport_name": rec.get("sport_name"),
+        "sport_id": rec.get("sport_id"),
+        "start": rec.get("start"),
+        "end": rec.get("end"),
+        "strain": score.get("strain"),
+        "avg_hr": score.get("average_heart_rate"),
+        "max_hr": score.get("max_heart_rate"),
+        "calories_burned": round(score["kilojoule"] * 0.239006) if score.get("kilojoule") else None,
+        "distance_meters": score.get("distance_meter"),
+        "altitude_gain_meters": score.get("altitude_gain_meter"),
+        "percent_recorded": score.get("percent_recorded"),
+        "hr_zones_minutes": {
+            "zone_0_below_50pct": ms_to_min(zones.get("zone_zero_milli")),
+            "zone_1_50_60pct": ms_to_min(zones.get("zone_one_milli")),
+            "zone_2_60_70pct": ms_to_min(zones.get("zone_two_milli")),
+            "zone_3_70_80pct": ms_to_min(zones.get("zone_three_milli")),
+            "zone_4_80_90pct": ms_to_min(zones.get("zone_four_milli")),
+            "zone_5_90_100pct": ms_to_min(zones.get("zone_five_milli")),
+        },
+        "duration_minutes": round(((rec.get("end") or rec.get("start", "")) and 0) or 0),  # calculated below
+        "score_state": rec.get("score_state"),
+    }
+
+
+def fetch_workouts(conn, target_date: str = None, days: int = 1) -> list:
+    """Fetch WHOOP workouts with HR zones for a date range."""
+    token = _get_valid_token(conn)
+    if not token:
+        return [{"error": "Not authenticated"}]
+
+    d = target_date or date.today().isoformat()
+    target = date.fromisoformat(d)
+    start = f"{(target - timedelta(days=max(0, days-1))).isoformat()}T00:00:00.000Z"
+    end = f"{(target + timedelta(days=1)).isoformat()}T23:59:59.999Z"
+
+    records = _paginate_all(token, "/activity/workout", start, end)
+    results = []
+    for r in records:
+        w = _extract_workout(r)
+        # Calculate duration from start/end
+        if r.get("start") and r.get("end"):
+            try:
+                s = datetime.fromisoformat(r["start"].replace("Z", "+00:00"))
+                e = datetime.fromisoformat(r["end"].replace("Z", "+00:00"))
+                w["duration_minutes"] = round((e - s).total_seconds() / 60, 1)
+            except Exception:
+                pass
+        w["date"] = _extract_date_from_record(r)
+        results.append(w)
+    return results
+
+
 # ============================================================
 # FETCH FUNCTIONS
 # ============================================================
