@@ -260,6 +260,22 @@ SCHEMA = """
         is_default INTEGER DEFAULT 1,
         created_at TEXT DEFAULT (datetime('now'))
     );
+
+    CREATE TABLE IF NOT EXISTS meals (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        date TEXT NOT NULL,
+        meal_type TEXT DEFAULT 'omad',
+        description TEXT DEFAULT '',
+        calories INTEGER,
+        protein_g REAL,
+        carbs_g REAL,
+        fat_g REAL,
+        fiber_g REAL,
+        foods TEXT DEFAULT '',
+        photo_logged INTEGER DEFAULT 0,
+        notes TEXT DEFAULT '',
+        created_at TEXT DEFAULT (datetime('now'))
+    );
 """
 
 

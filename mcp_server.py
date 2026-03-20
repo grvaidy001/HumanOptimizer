@@ -1179,6 +1179,134 @@ def delete_goal(goal_id: int) -> dict:
     return {"deleted": goal["name"]}
 
 
+# ============================================================
+# MEAL TRACKING
+# ============================================================
+
+@mcp.tool()
+def log_meal(
+    description: str,
+    calories: int = None,
+    protein_g: float = None,
+    carbs_g: float = None,
+    fat_g: float = None,
+    fiber_g: float = None,
+    foods: str = "",
+    meal_type: str = "omad",
+    photo_logged: bool = False,
+    notes: str = "",
+    target_date: str = "",
+) -> dict:
+    """Log a meal. Use when user describes what they ate or sends a food photo.
+
+    meal_type: 'omad', 'refeed', 'snack', 'pre_workout', 'post_workout'
+
+    foods should be a JSON string of individual items if detailed tracking is needed:
+    [
+        {"name": "Chicken breast", "amount": "8oz", "protein": 50, "calories": 280},
+        {"name": "Rice", "amount": "1 cup", "carbs": 45, "calories": 200},
+        {"name": "Broccoli", "amount": "2 cups", "fiber": 5, "calories": 60}
+    ]
+
+    For OMAD user (~1500-1900 kcal target, high protein, controlled carbs 50-120g):
+    - Flag if protein < 150g
+    - Flag if calories > 2000
+    - Flag if carbs > 120g
+    """
+    d = target_date or date.today().isoformat()
+    conn = get_connection()
+    conn.execute("""
+        INSERT INTO meals (date, meal_type, description, calories, protein_g, carbs_g,
+                          fat_g, fiber_g, foods, photo_logged, notes)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    """, (d, meal_type, description, calories, protein_g, carbs_g,
+          fat_g, fiber_g, foods, int(photo_logged), notes))
+    conn.commit()
+    sync_if_turso(conn)
+    conn.close()
+
+    # Warnings
+    warnings = []
+    if protein_g is not None and protein_g < 150:
+        warnings.append(f"Protein low ({protein_g}g) — target 150g+ to preserve muscle")
+    if calories is not None and calories > 2000:
+        warnings.append(f"Calories high ({calories}) — OMAD target is 1500-1900")
+    if carbs_g is not None and carbs_g > 120:
+        warnings.append(f"Carbs high ({carbs_g}g) — target 50-120g")
+
+    return {
+        "date": d,
+        "meal_type": meal_type,
+        "calories": calories,
+        "protein_g": protein_g,
+        "carbs_g": carbs_g,
+        "fat_g": fat_g,
+        "warnings": warnings,
+    }
+
+
+@mcp.tool()
+def get_meals(target_date: str = "") -> list:
+    """Get all meals logged for a date."""
+    d = target_date or date.today().isoformat()
+    conn = get_connection()
+    rows = conn.execute("SELECT * FROM meals WHERE date = ? ORDER BY created_at", (d,)).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+@mcp.tool()
+def get_meal_history(days: int = 30) -> dict:
+    """Get meal history with daily macro totals for the last N days."""
+    conn = get_connection()
+    cutoff = (date.today() - timedelta(days=days)).isoformat()
+    rows = conn.execute("""
+        SELECT date,
+               SUM(calories) as total_calories,
+               SUM(protein_g) as total_protein,
+               SUM(carbs_g) as total_carbs,
+               SUM(fat_g) as total_fat,
+               SUM(fiber_g) as total_fiber,
+               COUNT(*) as meal_count
+        FROM meals
+        WHERE date >= ?
+        GROUP BY date
+        ORDER BY date DESC
+    """, (cutoff,)).fetchall()
+    conn.close()
+
+    daily = [dict(r) for r in rows]
+
+    # Averages
+    if daily:
+        avg_cal = round(sum(d["total_calories"] or 0 for d in daily) / len(daily))
+        avg_pro = round(sum(d["total_protein"] or 0 for d in daily) / len(daily))
+        avg_carb = round(sum(d["total_carbs"] or 0 for d in daily) / len(daily))
+    else:
+        avg_cal = avg_pro = avg_carb = 0
+
+    return {
+        "daily_totals": daily,
+        "averages": {"calories": avg_cal, "protein_g": avg_pro, "carbs_g": avg_carb},
+        "days_tracked": len(daily),
+    }
+
+
+@mcp.tool()
+def delete_meal(meal_id: int) -> dict:
+    """Delete a meal entry by ID."""
+    conn = get_connection()
+    meal = conn.execute("SELECT date, description FROM meals WHERE id = ?", (meal_id,)).fetchone()
+    if not meal:
+        conn.close()
+        return {"error": f"Meal {meal_id} not found"}
+    conn.execute("DELETE FROM meals WHERE id = ?", (meal_id,))
+    conn.commit()
+    sync_if_turso(conn)
+    conn.close()
+    return {"deleted": meal["description"], "date": meal["date"]}
+
+
 if __name__ == "__main__":
     transport = os.getenv("MCP_TRANSPORT", "stdio")
     port = int(os.getenv("PORT", "8000"))
