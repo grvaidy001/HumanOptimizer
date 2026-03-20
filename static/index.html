@@ -1,0 +1,984 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>HumanOptimizer</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script>
+tailwind.config = {
+  darkMode: 'class',
+  theme: {
+    extend: {
+      colors: {
+        bg: { 900: '#0a0a0f', 800: '#12121a', 700: '#1a1a2e', 600: '#242438' },
+        accent: { DEFAULT: '#6366f1', light: '#818cf8', dark: '#4f46e5' },
+        win: '#22c55e',
+        loss: '#ef4444',
+        warn: '#f59e0b',
+        muted: '#64748b',
+      }
+    }
+  }
+}
+</script>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap');
+  body { font-family: 'Inter', sans-serif; }
+  .glass { background: rgba(26, 26, 46, 0.6); backdrop-filter: blur(12px); border: 1px solid rgba(99, 102, 241, 0.1); }
+  .glow { box-shadow: 0 0 20px rgba(99, 102, 241, 0.15); }
+  .glow-green { box-shadow: 0 0 20px rgba(34, 197, 94, 0.2); }
+  .glow-red { box-shadow: 0 0 20px rgba(239, 68, 68, 0.2); }
+  .task-check:checked + .task-label { text-decoration: line-through; opacity: 0.5; }
+  .tab-active { border-bottom: 2px solid #6366f1; color: #818cf8; }
+  .fade-in { animation: fadeIn 0.3s ease-in; }
+  @keyframes fadeIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+  input[type="number"], input[type="text"], textarea, select {
+    background: #12121a; border: 1px solid #242438; color: #e2e8f0; border-radius: 8px; padding: 8px 12px;
+    transition: border-color 0.2s;
+  }
+  input:focus, textarea:focus, select:focus { border-color: #6366f1; outline: none; box-shadow: 0 0 0 2px rgba(99,102,241,0.2); }
+  input[type="range"] { accent-color: #6366f1; }
+  ::-webkit-scrollbar { width: 6px; } ::-webkit-scrollbar-track { background: #0a0a0f; }
+  ::-webkit-scrollbar-thumb { background: #242438; border-radius: 3px; }
+  .checkbox-custom { appearance: none; width: 24px; height: 24px; border: 2px solid #4f46e5; border-radius: 6px;
+    background: #12121a; cursor: pointer; position: relative; transition: all 0.2s; flex-shrink: 0; }
+  .checkbox-custom:checked { background: #6366f1; border-color: #6366f1; }
+  .checkbox-custom:checked::after { content: '✓'; position: absolute; color: white; font-size: 14px; font-weight: bold;
+    top: 50%; left: 50%; transform: translate(-50%, -50%); }
+  .progress-ring { transition: stroke-dashoffset 0.5s ease; }
+</style>
+</head>
+<body class="bg-bg-900 text-gray-200 min-h-screen">
+
+<!-- HEADER -->
+<header class="glass sticky top-0 z-50 border-b border-bg-600">
+  <div class="max-w-7xl mx-auto px-4 py-3 flex items-center justify-between">
+    <div class="flex items-center gap-3">
+      <div class="w-8 h-8 bg-accent rounded-lg flex items-center justify-center font-black text-white text-sm">HO</div>
+      <h1 class="text-lg font-bold text-white">HumanOptimizer</h1>
+    </div>
+    <nav class="flex gap-1" id="nav-tabs">
+      <button onclick="showPage('today')" class="nav-tab px-4 py-2 text-sm font-medium rounded-lg transition hover:bg-bg-700" data-page="today">Today</button>
+      <button onclick="showPage('fitness')" class="nav-tab px-4 py-2 text-sm font-medium rounded-lg transition hover:bg-bg-700" data-page="fitness">Fitness</button>
+      <button onclick="showPage('weekly')" class="nav-tab px-4 py-2 text-sm font-medium rounded-lg transition hover:bg-bg-700" data-page="weekly">Weekly</button>
+      <button onclick="showPage('communication')" class="nav-tab px-4 py-2 text-sm font-medium rounded-lg transition hover:bg-bg-700" data-page="communication">Comms</button>
+      <button onclick="showPage('hard75')" class="nav-tab px-4 py-2 text-sm font-medium rounded-lg transition hover:bg-bg-700" data-page="hard75">75 Hard</button>
+      <button onclick="showPage('integrations')" class="nav-tab px-4 py-2 text-sm font-medium rounded-lg transition hover:bg-bg-700" data-page="integrations">Integrations</button>
+    </nav>
+    <div id="header-stats" class="flex items-center gap-4 text-sm">
+      <div class="text-muted">Streak: <span id="header-streak" class="text-win font-bold">0</span></div>
+      <div class="text-muted">Win Rate: <span id="header-winrate" class="text-accent-light font-bold">0%</span></div>
+    </div>
+  </div>
+</header>
+
+<main class="max-w-7xl mx-auto px-4 py-6">
+
+<!-- ==================== TODAY ==================== -->
+<div id="page-today" class="page fade-in">
+  <div class="flex items-center justify-between mb-6">
+    <div>
+      <h2 class="text-3xl font-black text-white">TODAY</h2>
+      <p class="text-muted text-sm mt-1" id="today-date"></p>
+    </div>
+    <div id="today-result-badge" class="px-6 py-2 rounded-xl text-lg font-black"></div>
+  </div>
+
+  <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+    <!-- POWER LIST -->
+    <div class="lg:col-span-2">
+      <div class="glass rounded-2xl p-6 glow">
+        <div class="flex items-center justify-between mb-4">
+          <h3 class="text-xl font-bold text-white">Power List</h3>
+          <div id="pl-counter" class="text-2xl font-black"></div>
+        </div>
+        <p class="text-muted text-sm mb-4">Complete all 5 to WIN the day. No excuses.</p>
+
+        <div class="space-y-3" id="power-list-tasks">
+          <!-- Tasks rendered by JS -->
+        </div>
+
+        <button onclick="savePowerList()" class="mt-6 w-full py-3 bg-accent hover:bg-accent-dark rounded-xl font-bold text-white transition transform hover:scale-[1.01] active:scale-[0.99]">
+          SAVE POWER LIST
+        </button>
+      </div>
+
+      <!-- COACHING PLAN -->
+      <div class="glass rounded-2xl p-6 mt-6">
+        <div class="flex items-center justify-between mb-4">
+          <h3 class="text-xl font-bold text-white">Coaching Plan</h3>
+          <button onclick="getCoachingPlan()" class="px-4 py-2 bg-accent/20 text-accent-light rounded-lg text-sm font-medium hover:bg-accent/30 transition">
+            Generate Plan
+          </button>
+        </div>
+        <div id="coaching-plan" class="text-muted text-sm">Click "Generate Plan" after entering your recovery data.</div>
+      </div>
+    </div>
+
+    <!-- DAILY LOG SIDEBAR -->
+    <div class="space-y-6">
+      <!-- Quick Stats -->
+      <div class="glass rounded-2xl p-6">
+        <h3 class="text-lg font-bold text-white mb-3">Quick Stats</h3>
+        <div class="grid grid-cols-2 gap-3">
+          <div class="bg-bg-800 rounded-xl p-3 text-center">
+            <div class="text-2xl font-black text-win" id="stat-streak">0</div>
+            <div class="text-xs text-muted">Streak</div>
+          </div>
+          <div class="bg-bg-800 rounded-xl p-3 text-center">
+            <div class="text-2xl font-black text-accent-light" id="stat-winrate">0%</div>
+            <div class="text-xs text-muted">Win Rate</div>
+          </div>
+          <div class="bg-bg-800 rounded-xl p-3 text-center">
+            <div class="text-2xl font-black text-white" id="stat-wins">0</div>
+            <div class="text-xs text-muted">Wins (30d)</div>
+          </div>
+          <div class="bg-bg-800 rounded-xl p-3 text-center">
+            <div class="text-2xl font-black text-loss" id="stat-losses">0</div>
+            <div class="text-xs text-muted">Losses (30d)</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Body & Fasting -->
+      <div class="glass rounded-2xl p-6">
+        <h3 class="text-lg font-bold text-white mb-3">Body & Fasting</h3>
+        <div class="space-y-3">
+          <div>
+            <label class="text-xs text-muted uppercase tracking-wider">Weight (lbs)</label>
+            <input type="number" id="log-weight" step="0.1" min="0" max="600" class="w-full mt-1">
+          </div>
+          <div class="flex items-center gap-3">
+            <input type="checkbox" id="log-fasting" class="checkbox-custom">
+            <label class="text-sm">Fasting Day</label>
+          </div>
+          <div class="grid grid-cols-2 gap-3">
+            <div>
+              <label class="text-xs text-muted uppercase tracking-wider">Cycle Day</label>
+              <select id="log-cycle-day" class="w-full mt-1">
+                <option value="1">Day 1 — Fast</option>
+                <option value="2">Day 2 — Fast</option>
+                <option value="3">Day 3 — Fast</option>
+                <option value="4">Day 4 — Refeed</option>
+              </select>
+            </div>
+            <div>
+              <label class="text-xs text-muted uppercase tracking-wider">Day Type</label>
+              <select id="log-day-type" class="w-full mt-1">
+                <option>Upper</option>
+                <option>Lower + Sled</option>
+                <option>Recovery</option>
+                <option>Refeed/Heavy</option>
+              </select>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Recovery -->
+      <div class="glass rounded-2xl p-6">
+        <div class="flex items-center justify-between mb-3">
+          <h3 class="text-lg font-bold text-white">Recovery</h3>
+          <button onclick="pullWhoop()" id="whoop-pull-btn" class="hidden px-3 py-1 bg-green-600/20 text-green-400 rounded-lg text-xs font-medium hover:bg-green-600/30 transition">
+            Pull WHOOP
+          </button>
+        </div>
+        <div class="space-y-3">
+          <div>
+            <div class="flex justify-between"><label class="text-xs text-muted uppercase tracking-wider">Recovery %</label><span class="text-xs text-accent-light" id="val-recovery">70</span></div>
+            <input type="range" id="log-recovery" min="0" max="100" value="70" class="w-full mt-1" oninput="document.getElementById('val-recovery').textContent=this.value">
+          </div>
+          <div>
+            <div class="flex justify-between"><label class="text-xs text-muted uppercase tracking-wider">Strain</label><span class="text-xs text-accent-light" id="val-strain">10</span></div>
+            <input type="range" id="log-strain" min="0" max="21" value="10" class="w-full mt-1" oninput="document.getElementById('val-strain').textContent=this.value">
+          </div>
+          <div>
+            <div class="flex justify-between"><label class="text-xs text-muted uppercase tracking-wider">Sleep Score</label><span class="text-xs text-accent-light" id="val-sleep">70</span></div>
+            <input type="range" id="log-sleep" min="0" max="100" value="70" class="w-full mt-1" oninput="document.getElementById('val-sleep').textContent=this.value">
+          </div>
+          <div class="grid grid-cols-2 gap-3">
+            <div>
+              <label class="text-xs text-muted uppercase tracking-wider">Resting HR</label>
+              <input type="number" id="log-rhr" min="30" max="120" value="65" class="w-full mt-1">
+            </div>
+            <div>
+              <label class="text-xs text-muted uppercase tracking-wider">HRV</label>
+              <input type="number" id="log-hrv" min="0" max="200" value="40" class="w-full mt-1">
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Activity -->
+      <div class="glass rounded-2xl p-6">
+        <h3 class="text-lg font-bold text-white mb-3">Activity</h3>
+        <div class="space-y-3">
+          <div class="grid grid-cols-2 gap-3">
+            <div>
+              <label class="text-xs text-muted uppercase tracking-wider">Walk (min)</label>
+              <input type="number" id="log-walk" min="0" max="300" value="0" class="w-full mt-1">
+            </div>
+            <div>
+              <label class="text-xs text-muted uppercase tracking-wider">Vest (lbs)</label>
+              <input type="number" id="log-vest" min="0" max="100" step="0.5" value="0" class="w-full mt-1">
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Communication -->
+      <div class="glass rounded-2xl p-6">
+        <h3 class="text-lg font-bold text-white mb-3">Communication</h3>
+        <div class="space-y-3">
+          <div class="grid grid-cols-2 gap-3">
+            <div>
+              <label class="text-xs text-muted uppercase tracking-wider">Minutes</label>
+              <input type="number" id="log-comm-min" min="0" max="180" value="0" class="w-full mt-1">
+            </div>
+            <div>
+              <label class="text-xs text-muted uppercase tracking-wider">Sessions</label>
+              <input type="number" id="log-comm-sess" min="0" max="20" value="0" class="w-full mt-1">
+            </div>
+          </div>
+          <div>
+            <label class="text-xs text-muted uppercase tracking-wider">Notes</label>
+            <textarea id="log-comm-notes" rows="2" class="w-full mt-1" placeholder="What did you practice?"></textarea>
+          </div>
+        </div>
+      </div>
+
+      <!-- Notes -->
+      <div class="glass rounded-2xl p-6">
+        <h3 class="text-lg font-bold text-white mb-3">Notes</h3>
+        <textarea id="log-notes" rows="3" class="w-full" placeholder="How was your day?"></textarea>
+      </div>
+
+      <button onclick="saveDailyLog()" class="w-full py-3 bg-bg-700 hover:bg-bg-600 border border-bg-600 rounded-xl font-bold text-white transition">
+        SAVE DAILY LOG
+      </button>
+    </div>
+  </div>
+</div>
+
+<!-- ==================== FITNESS ==================== -->
+<div id="page-fitness" class="page fade-in hidden">
+  <h2 class="text-3xl font-black text-white mb-6">Fitness & Body Transformation</h2>
+
+  <div class="glass rounded-2xl p-6 mb-6">
+    <h3 class="text-xl font-bold text-white mb-4">Weight Trend</h3>
+    <div id="weight-chart" class="h-64 flex items-end gap-1"></div>
+    <div class="grid grid-cols-3 gap-4 mt-4" id="weight-stats"></div>
+  </div>
+
+  <div class="glass rounded-2xl p-6 mb-6">
+    <div class="flex items-center justify-between mb-4">
+      <h3 class="text-xl font-bold text-white">Today's Hevy Workouts</h3>
+      <button onclick="pullHevyWorkouts()" id="hevy-pull-btn" class="hidden px-4 py-2 bg-blue-600/20 text-blue-400 rounded-lg text-sm font-medium hover:bg-blue-600/30 transition">
+        Pull from Hevy
+      </button>
+    </div>
+    <div id="hevy-workouts" class="text-muted text-sm">Connect Hevy on the Integrations page to see your workouts here.</div>
+  </div>
+
+  <div class="glass rounded-2xl p-6">
+    <h3 class="text-xl font-bold text-white mb-4">Recent Logs</h3>
+    <div class="overflow-x-auto">
+      <table class="w-full text-sm">
+        <thead><tr class="text-muted text-xs uppercase tracking-wider border-b border-bg-600">
+          <th class="py-2 text-left">Date</th><th class="text-right">Weight</th><th class="text-right">Type</th>
+          <th class="text-right">Cycle</th><th class="text-right">Recovery</th><th class="text-right">Walk</th>
+        </tr></thead>
+        <tbody id="fitness-logs"></tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<!-- ==================== WEEKLY ==================== -->
+<div id="page-weekly" class="page fade-in hidden">
+  <h2 class="text-3xl font-black text-white mb-6">Weekly Review</h2>
+
+  <div class="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6" id="weekly-metrics"></div>
+
+  <div class="glass rounded-2xl p-6 mb-6">
+    <h3 class="text-xl font-bold text-white mb-3">Consistency</h3>
+    <div class="grid grid-cols-3 gap-4" id="weekly-consistency"></div>
+  </div>
+
+  <div class="glass rounded-2xl p-6 mb-6">
+    <h3 class="text-xl font-bold text-white mb-3">Summary</h3>
+    <p id="weekly-summary" class="text-gray-300 leading-relaxed"></p>
+  </div>
+
+  <div class="glass rounded-2xl p-6">
+    <h3 class="text-xl font-bold text-white mb-4">Past Weeks</h3>
+    <div class="overflow-x-auto">
+      <table class="w-full text-sm">
+        <thead><tr class="text-muted text-xs uppercase tracking-wider border-b border-bg-600">
+          <th class="py-2 text-left">Week</th><th class="text-right">W</th><th class="text-right">L</th>
+          <th class="text-right">Rate</th><th class="text-right">Wt Change</th><th class="text-right">Streak</th>
+        </tr></thead>
+        <tbody id="weekly-history"></tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<!-- ==================== COMMUNICATION ==================== -->
+<div id="page-communication" class="page fade-in hidden">
+  <h2 class="text-3xl font-black text-white mb-6">Communication Development</h2>
+
+  <div class="glass rounded-2xl p-6 mb-6">
+    <h3 class="text-xl font-bold text-white mb-3">Practice Suggestions</h3>
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-3" id="comm-suggestions">
+      <div class="bg-bg-800 rounded-xl p-4 border border-bg-600 hover:border-accent/30 transition cursor-pointer">
+        <div class="text-sm font-medium text-white">Explain a complex concept in under 3 minutes</div>
+        <div class="text-xs text-muted mt-1">Record yourself and review</div>
+      </div>
+      <div class="bg-bg-800 rounded-xl p-4 border border-bg-600 hover:border-accent/30 transition cursor-pointer">
+        <div class="text-sm font-medium text-white">Practice your elevator pitch</div>
+        <div class="text-xs text-muted mt-1">60 seconds, who you are, what you do</div>
+      </div>
+      <div class="bg-bg-800 rounded-xl p-4 border border-bg-600 hover:border-accent/30 transition cursor-pointer">
+        <div class="text-sm font-medium text-white">Summarize an article verbally</div>
+        <div class="text-xs text-muted mt-1">Read something, then explain it aloud</div>
+      </div>
+      <div class="bg-bg-800 rounded-xl p-4 border border-bg-600 hover:border-accent/30 transition cursor-pointer">
+        <div class="text-sm font-medium text-white">Record a 2-min daily review</div>
+        <div class="text-xs text-muted mt-1">What went well, what to improve</div>
+      </div>
+      <div class="bg-bg-800 rounded-xl p-4 border border-bg-600 hover:border-accent/30 transition cursor-pointer">
+        <div class="text-sm font-medium text-white">Explain your training program</div>
+        <div class="text-xs text-muted mt-1">Teach someone your workout split</div>
+      </div>
+      <div class="bg-bg-800 rounded-xl p-4 border border-bg-600 hover:border-accent/30 transition cursor-pointer">
+        <div class="text-sm font-medium text-white">Practice giving feedback</div>
+        <div class="text-xs text-muted mt-1">Pick something you read and critique it</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="glass rounded-2xl p-6">
+    <h3 class="text-xl font-bold text-white mb-4">Recent Sessions</h3>
+    <div class="grid grid-cols-2 gap-4 mb-4" id="comm-stats"></div>
+    <div class="overflow-x-auto">
+      <table class="w-full text-sm">
+        <thead><tr class="text-muted text-xs uppercase tracking-wider border-b border-bg-600">
+          <th class="py-2 text-left">Date</th><th class="text-right">Minutes</th><th class="text-right">Sessions</th><th class="text-left pl-4">Notes</th>
+        </tr></thead>
+        <tbody id="comm-logs"></tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<!-- ==================== 75 HARD ==================== -->
+<div id="page-hard75" class="page fade-in hidden">
+  <h2 class="text-3xl font-black text-white mb-2">75 Hard</h2>
+  <p class="text-muted mb-6">Complete ALL 6 tasks every day. No excuses. No substitutions.</p>
+
+  <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+    <div class="glass rounded-2xl p-6 glow">
+      <div class="space-y-4" id="hard75-tasks">
+        <!-- Rendered by JS -->
+      </div>
+      <button onclick="save75Hard()" class="mt-6 w-full py-3 bg-accent hover:bg-accent-dark rounded-xl font-bold text-white transition">
+        SAVE 75 HARD
+      </button>
+    </div>
+
+    <div class="space-y-6">
+      <div class="glass rounded-2xl p-6 text-center">
+        <div class="text-6xl font-black text-white mb-2" id="hard75-streak">0</div>
+        <div class="text-muted">Day Streak</div>
+        <div class="mt-4 bg-bg-800 rounded-full h-4 overflow-hidden">
+          <div id="hard75-progress" class="h-full bg-gradient-to-r from-accent to-win rounded-full transition-all duration-500" style="width:0%"></div>
+        </div>
+        <div class="text-xs text-muted mt-2" id="hard75-progress-text">0 / 75 days</div>
+      </div>
+      <div class="glass rounded-2xl p-6" id="hard75-result-card"></div>
+    </div>
+  </div>
+</div>
+
+<!-- ==================== INTEGRATIONS ==================== -->
+<div id="page-integrations" class="page fade-in hidden">
+  <h2 class="text-3xl font-black text-white mb-2">Integrations</h2>
+  <p class="text-muted mb-6">Connect external services to auto-populate your daily metrics.</p>
+
+  <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+    <!-- WHOOP -->
+    <div class="glass rounded-2xl p-6">
+      <div class="flex items-center gap-3 mb-4">
+        <div class="w-10 h-10 bg-green-600/20 rounded-xl flex items-center justify-center text-green-400 font-bold text-sm">W</div>
+        <div>
+          <h3 class="text-lg font-bold text-white">WHOOP</h3>
+          <p class="text-xs text-muted">Recovery, Strain, HRV, Sleep</p>
+        </div>
+        <div id="whoop-status" class="ml-auto"></div>
+      </div>
+      <div id="whoop-config">
+        <div class="space-y-3">
+          <div>
+            <label class="text-xs text-muted uppercase tracking-wider">Client ID</label>
+            <input type="text" id="whoop-client-id" class="w-full mt-1" placeholder="From developer.whoop.com">
+          </div>
+          <div>
+            <label class="text-xs text-muted uppercase tracking-wider">Client Secret</label>
+            <input type="password" id="whoop-client-secret" class="w-full mt-1" placeholder="Your client secret">
+          </div>
+          <button onclick="configureWhoop()" class="w-full py-2 bg-green-600/20 text-green-400 rounded-lg font-medium hover:bg-green-600/30 transition">
+            Save & Connect
+          </button>
+          <div id="whoop-auth-link" class="text-center"></div>
+        </div>
+      </div>
+      <div id="whoop-connected" class="hidden">
+        <div class="bg-green-600/10 rounded-xl p-4 text-center mb-3">
+          <div class="text-green-400 font-bold">Connected</div>
+        </div>
+        <button onclick="disconnectWhoop()" class="w-full py-2 bg-loss/20 text-loss rounded-lg font-medium hover:bg-loss/30 transition">
+          Disconnect
+        </button>
+      </div>
+    </div>
+
+    <!-- HEVY -->
+    <div class="glass rounded-2xl p-6">
+      <div class="flex items-center gap-3 mb-4">
+        <div class="w-10 h-10 bg-blue-600/20 rounded-xl flex items-center justify-center text-blue-400 font-bold text-sm">H</div>
+        <div>
+          <h3 class="text-lg font-bold text-white">Hevy</h3>
+          <p class="text-xs text-muted">Workouts, Exercises, Volume</p>
+        </div>
+        <div id="hevy-status" class="ml-auto"></div>
+      </div>
+      <div id="hevy-config">
+        <div class="space-y-3">
+          <div>
+            <label class="text-xs text-muted uppercase tracking-wider">API Key</label>
+            <input type="password" id="hevy-api-key" class="w-full mt-1" placeholder="From hevy.com/settings?developer">
+          </div>
+          <p class="text-xs text-muted">Requires Hevy Pro subscription</p>
+          <button onclick="configureHevy()" class="w-full py-2 bg-blue-600/20 text-blue-400 rounded-lg font-medium hover:bg-blue-600/30 transition">
+            Save & Connect
+          </button>
+        </div>
+      </div>
+      <div id="hevy-connected" class="hidden">
+        <div class="bg-blue-600/10 rounded-xl p-4 text-center mb-3">
+          <div class="text-blue-400 font-bold">Connected</div>
+          <div class="text-xs text-muted mt-1" id="hevy-workout-count"></div>
+        </div>
+        <button onclick="disconnectHevy()" class="w-full py-2 bg-loss/20 text-loss rounded-lg font-medium hover:bg-loss/30 transition">
+          Disconnect
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
+</main>
+
+<!-- TOAST -->
+<div id="toast" class="fixed bottom-6 right-6 px-6 py-3 rounded-xl font-medium text-sm transform translate-y-20 opacity-0 transition-all duration-300 z-50"></div>
+
+<script>
+const API = '/api';
+const today = new Date().toISOString().split('T')[0];
+
+// --- Utilities ---
+async function api(method, path, body) {
+  const opts = { method, headers: { 'Content-Type': 'application/json' } };
+  if (body) opts.body = JSON.stringify(body);
+  try {
+    const r = await fetch(API + path, opts);
+    if (r.ok) return r.json();
+    return null;
+  } catch { return null; }
+}
+
+function toast(msg, type = 'success') {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.className = `fixed bottom-6 right-6 px-6 py-3 rounded-xl font-medium text-sm z-50 transition-all duration-300 ${
+    type === 'success' ? 'bg-win text-white' : type === 'error' ? 'bg-loss text-white' : 'bg-warn text-black'
+  }`;
+  t.style.transform = 'translateY(0)'; t.style.opacity = '1';
+  setTimeout(() => { t.style.transform = 'translateY(20px)'; t.style.opacity = '0'; }, 3000);
+}
+
+// --- Navigation ---
+function showPage(name) {
+  document.querySelectorAll('.page').forEach(p => p.classList.add('hidden'));
+  document.getElementById('page-' + name).classList.remove('hidden');
+  document.querySelectorAll('.nav-tab').forEach(t => {
+    t.classList.toggle('tab-active', t.dataset.page === name);
+    t.classList.toggle('text-white', t.dataset.page === name);
+  });
+  if (name === 'fitness') loadFitness();
+  if (name === 'weekly') loadWeekly();
+  if (name === 'communication') loadCommunication();
+  if (name === 'hard75') load75Hard();
+  if (name === 'integrations') loadIntegrations();
+}
+
+// --- POWER LIST ---
+const defaultTasks = [
+  { name: 'Gym Workout', done: false },
+  { name: 'Outdoor Walk', done: false },
+  { name: 'Communication Practice', done: false },
+  { name: 'Reading / Reflection', done: false },
+  { name: 'Custom Task', done: false },
+];
+
+function renderPowerList(tasks) {
+  const container = document.getElementById('power-list-tasks');
+  container.innerHTML = tasks.map((t, i) => `
+    <div class="flex items-center gap-4 bg-bg-800 rounded-xl p-4 border border-bg-600 hover:border-accent/20 transition group">
+      <input type="checkbox" id="task-${i}-done" class="checkbox-custom" ${t.done ? 'checked' : ''} onchange="updatePLCount()">
+      <input type="text" id="task-${i}-name" value="${t.name}" class="flex-1 bg-transparent border-none text-white font-medium focus:outline-none">
+      <span class="text-xs text-muted opacity-0 group-hover:opacity-100 transition">#${i + 1}</span>
+    </div>
+  `).join('');
+  updatePLCount();
+}
+
+function updatePLCount() {
+  let count = 0;
+  for (let i = 0; i < 5; i++) {
+    if (document.getElementById(`task-${i}-done`)?.checked) count++;
+  }
+  const counter = document.getElementById('pl-counter');
+  counter.textContent = `${count}/5`;
+  counter.className = count === 5 ? 'text-2xl font-black text-win' : count > 0 ? 'text-2xl font-black text-warn' : 'text-2xl font-black text-muted';
+
+  const badge = document.getElementById('today-result-badge');
+  if (count === 5) {
+    badge.textContent = 'WIN'; badge.className = 'px-6 py-2 rounded-xl text-lg font-black bg-win text-white glow-green';
+  } else if (count > 0) {
+    badge.textContent = 'IN PROGRESS'; badge.className = 'px-6 py-2 rounded-xl text-lg font-black bg-warn text-black';
+  } else {
+    badge.textContent = 'PENDING'; badge.className = 'px-6 py-2 rounded-xl text-lg font-black bg-bg-700 text-muted';
+  }
+}
+
+async function savePowerList() {
+  const data = { date: today };
+  for (let i = 0; i < 5; i++) {
+    data[`task${i+1}_name`] = document.getElementById(`task-${i}-name`).value;
+    data[`task${i+1}_done`] = document.getElementById(`task-${i}-done`).checked;
+  }
+  const r = await api('POST', '/power-list', data);
+  if (r) { toast('Power List saved!'); loadHeaderStats(); }
+  else toast('Failed to save', 'error');
+}
+
+// --- DAILY LOG ---
+async function saveDailyLog() {
+  const weight = parseFloat(document.getElementById('log-weight').value);
+  const data = {
+    date: today,
+    weight: weight > 0 ? weight : null,
+    fasting_day: document.getElementById('log-fasting').checked,
+    fasting_cycle_day: parseInt(document.getElementById('log-cycle-day').value),
+    day_type: document.getElementById('log-day-type').value,
+    recovery: parseInt(document.getElementById('log-recovery').value),
+    strain: parseInt(document.getElementById('log-strain').value),
+    sleep_score: parseInt(document.getElementById('log-sleep').value),
+    rhr: parseInt(document.getElementById('log-rhr').value),
+    hrv: parseInt(document.getElementById('log-hrv').value),
+    walk_minutes: parseInt(document.getElementById('log-walk').value),
+    vest_weight: parseFloat(document.getElementById('log-vest').value),
+    communication_minutes: parseInt(document.getElementById('log-comm-min').value),
+    communication_sessions: parseInt(document.getElementById('log-comm-sess').value),
+    communication_notes: document.getElementById('log-comm-notes').value,
+    notes: document.getElementById('log-notes').value,
+  };
+  const r = await api('POST', '/daily-log', data);
+  if (r) toast('Daily log saved!');
+  else toast('Failed to save', 'error');
+}
+
+function populateDailyLog(data) {
+  if (!data) return;
+  if (data.weight) document.getElementById('log-weight').value = data.weight;
+  document.getElementById('log-fasting').checked = data.fasting_day;
+  document.getElementById('log-cycle-day').value = data.fasting_cycle_day || 1;
+  document.getElementById('log-day-type').value = data.day_type || 'Upper';
+  if (data.recovery != null) { document.getElementById('log-recovery').value = data.recovery; document.getElementById('val-recovery').textContent = data.recovery; }
+  if (data.strain != null) { document.getElementById('log-strain').value = data.strain; document.getElementById('val-strain').textContent = data.strain; }
+  if (data.sleep_score != null) { document.getElementById('log-sleep').value = data.sleep_score; document.getElementById('val-sleep').textContent = data.sleep_score; }
+  if (data.rhr) document.getElementById('log-rhr').value = data.rhr;
+  if (data.hrv) document.getElementById('log-hrv').value = data.hrv;
+  document.getElementById('log-walk').value = data.walk_minutes || 0;
+  document.getElementById('log-vest').value = data.vest_weight || 0;
+  document.getElementById('log-comm-min').value = data.communication_minutes || 0;
+  document.getElementById('log-comm-sess').value = data.communication_sessions || 0;
+  document.getElementById('log-comm-notes').value = data.communication_notes || '';
+  document.getElementById('log-notes').value = data.notes || '';
+}
+
+// --- COACHING ---
+async function getCoachingPlan() {
+  const yesterday = new Date(Date.now() - 86400000).toISOString().split('T')[0];
+  const prevPl = await api('GET', `/power-list/${yesterday}`);
+  const input = {
+    recovery: parseInt(document.getElementById('log-recovery').value),
+    strain: parseInt(document.getElementById('log-strain').value),
+    fasting_day: document.getElementById('log-fasting').checked,
+    fasting_cycle_day: parseInt(document.getElementById('log-cycle-day').value),
+    day_type: document.getElementById('log-day-type').value,
+    previous_result: prevPl?.result || 'PENDING',
+    sleep_score: parseInt(document.getElementById('log-sleep').value),
+    hrv: parseInt(document.getElementById('log-hrv').value),
+  };
+  const plan = await api('POST', '/coaching/plan', input);
+  if (!plan) { toast('Failed to get plan', 'error'); return; }
+
+  const statusColors = { GREEN: 'text-win bg-win/10', YELLOW: 'text-warn bg-warn/10', RED: 'text-loss bg-loss/10' };
+  const sc = statusColors[plan.status] || statusColors.GREEN;
+
+  document.getElementById('coaching-plan').innerHTML = `
+    <div class="space-y-3">
+      <div class="flex items-center gap-3">
+        <span class="px-3 py-1 rounded-lg text-sm font-bold ${sc}">${plan.status}</span>
+        <span class="text-white font-medium">${plan.training.toUpperCase()} intensity</span>
+      </div>
+      <div class="grid grid-cols-2 gap-3">
+        <div class="bg-bg-800 rounded-xl p-3"><div class="text-xs text-muted mb-1">Sled</div><div class="text-sm text-white">${plan.sled}</div></div>
+        <div class="bg-bg-800 rounded-xl p-3"><div class="text-xs text-muted mb-1">Walk</div><div class="text-sm text-white">${plan.walk}</div></div>
+      </div>
+      <div class="bg-accent/10 rounded-xl p-3"><div class="text-xs text-accent-light mb-1">Communication Task</div><div class="text-sm text-white">${plan.communication_task}</div></div>
+      ${plan.warning ? `<div class="bg-warn/10 rounded-xl p-3 text-warn text-sm">${plan.warning}</div>` : ''}
+    </div>
+  `;
+}
+
+// --- HEADER STATS ---
+async function loadHeaderStats() {
+  const [streak, stats] = await Promise.all([
+    api('GET', '/stats/streak'),
+    api('GET', '/stats/win-rate'),
+  ]);
+  const s = streak?.streak || 0;
+  const wr = stats?.win_rate || 0;
+  document.getElementById('header-streak').textContent = s;
+  document.getElementById('header-winrate').textContent = wr + '%';
+  document.getElementById('stat-streak').textContent = s;
+  document.getElementById('stat-winrate').textContent = wr + '%';
+  document.getElementById('stat-wins').textContent = stats?.wins || 0;
+  document.getElementById('stat-losses').textContent = stats?.losses || 0;
+}
+
+// --- FITNESS ---
+async function loadFitness() {
+  // Weight chart - use daily logs data
+  const conn = await api('GET', `/daily-log/${today}`); // Just to check connectivity
+  // Fetch recent logs via a workaround - get last 30 days
+  const logs = [];
+  const promises = [];
+  for (let i = 0; i < 30; i++) {
+    const d = new Date(Date.now() - i * 86400000).toISOString().split('T')[0];
+    promises.push(api('GET', `/daily-log/${d}`).then(r => { if (r && r.weight) logs.push(r); }));
+  }
+  await Promise.all(promises);
+  logs.sort((a, b) => a.date.localeCompare(b.date));
+
+  // Render chart
+  const chart = document.getElementById('weight-chart');
+  if (logs.length > 0) {
+    const weights = logs.map(l => l.weight);
+    const min = Math.min(...weights) - 2;
+    const max = Math.max(...weights) + 2;
+    const range = max - min || 1;
+    chart.innerHTML = logs.map(l => {
+      const h = ((l.weight - min) / range) * 100;
+      return `<div class="flex-1 flex flex-col items-center justify-end gap-1">
+        <div class="text-[10px] text-muted">${l.weight}</div>
+        <div class="w-full bg-accent/60 rounded-t-sm hover:bg-accent transition" style="height:${Math.max(h, 4)}%" title="${l.date}: ${l.weight} lbs"></div>
+        <div class="text-[9px] text-muted">${l.date.slice(5)}</div>
+      </div>`;
+    }).join('');
+
+    const latest = weights[weights.length - 1];
+    const earliest = weights[0];
+    const change = (latest - earliest).toFixed(1);
+    document.getElementById('weight-stats').innerHTML = `
+      <div class="bg-bg-800 rounded-xl p-4 text-center"><div class="text-2xl font-black text-white">${latest}</div><div class="text-xs text-muted">Current (lbs)</div></div>
+      <div class="bg-bg-800 rounded-xl p-4 text-center"><div class="text-2xl font-black text-white">${earliest}</div><div class="text-xs text-muted">Start (lbs)</div></div>
+      <div class="bg-bg-800 rounded-xl p-4 text-center"><div class="text-2xl font-black ${change < 0 ? 'text-win' : 'text-loss'}">${change > 0 ? '+' : ''}${change}</div><div class="text-xs text-muted">Change (lbs)</div></div>
+    `;
+  } else {
+    chart.innerHTML = '<div class="text-muted text-sm text-center w-full py-8">No weight data yet. Log your weight on the Today page.</div>';
+  }
+
+  // Recent logs table
+  const tbody = document.getElementById('fitness-logs');
+  tbody.innerHTML = logs.slice().reverse().slice(0, 14).map(l => `
+    <tr class="border-b border-bg-600/50 hover:bg-bg-800/50">
+      <td class="py-2 text-white">${l.date}</td>
+      <td class="text-right">${l.weight || '-'}</td>
+      <td class="text-right">${l.day_type || '-'}</td>
+      <td class="text-right">Day ${l.fasting_cycle_day}</td>
+      <td class="text-right">${l.recovery != null ? l.recovery + '%' : '-'}</td>
+      <td class="text-right">${l.walk_minutes || 0} min</td>
+    </tr>
+  `).join('');
+}
+
+// --- WEEKLY ---
+async function loadWeekly() {
+  const summary = await api('GET', '/weekly-summary');
+  if (!summary) { document.getElementById('weekly-summary').textContent = 'No data yet.'; return; }
+
+  document.getElementById('weekly-metrics').innerHTML = `
+    <div class="glass rounded-2xl p-4 text-center"><div class="text-3xl font-black text-win">${summary.wins}</div><div class="text-xs text-muted">Wins</div></div>
+    <div class="glass rounded-2xl p-4 text-center"><div class="text-3xl font-black text-loss">${summary.losses}</div><div class="text-xs text-muted">Losses</div></div>
+    <div class="glass rounded-2xl p-4 text-center"><div class="text-3xl font-black text-accent-light">${summary.win_rate}%</div><div class="text-xs text-muted">Win Rate</div></div>
+    <div class="glass rounded-2xl p-4 text-center"><div class="text-3xl font-black text-white">${summary.streak}</div><div class="text-xs text-muted">Streak</div></div>
+  `;
+
+  document.getElementById('weekly-consistency').innerHTML = `
+    <div class="bg-bg-800 rounded-xl p-4 text-center">
+      <div class="text-2xl font-black text-white">${summary.gym_consistency}%</div><div class="text-xs text-muted">Gym</div>
+      <div class="mt-2 bg-bg-900 rounded-full h-2"><div class="h-full bg-accent rounded-full" style="width:${summary.gym_consistency}%"></div></div>
+    </div>
+    <div class="bg-bg-800 rounded-xl p-4 text-center">
+      <div class="text-2xl font-black text-white">${summary.walk_consistency}%</div><div class="text-xs text-muted">Walking</div>
+      <div class="mt-2 bg-bg-900 rounded-full h-2"><div class="h-full bg-win rounded-full" style="width:${summary.walk_consistency}%"></div></div>
+    </div>
+    <div class="bg-bg-800 rounded-xl p-4 text-center">
+      <div class="text-2xl font-black text-white">${summary.communication_consistency}%</div><div class="text-xs text-muted">Communication</div>
+      <div class="mt-2 bg-bg-900 rounded-full h-2"><div class="h-full bg-warn rounded-full" style="width:${summary.communication_consistency}%"></div></div>
+    </div>
+  `;
+
+  document.getElementById('weekly-summary').textContent = summary.summary || 'No summary yet.';
+}
+
+// --- COMMUNICATION ---
+async function loadCommunication() {
+  const logs = [];
+  for (let i = 0; i < 14; i++) {
+    const d = new Date(Date.now() - i * 86400000).toISOString().split('T')[0];
+    const r = await api('GET', `/daily-log/${d}`);
+    if (r && r.communication_minutes > 0) logs.push(r);
+  }
+
+  const totalMins = logs.reduce((s, l) => s + (l.communication_minutes || 0), 0);
+  const totalSess = logs.reduce((s, l) => s + (l.communication_sessions || 0), 0);
+
+  document.getElementById('comm-stats').innerHTML = `
+    <div class="bg-bg-800 rounded-xl p-4 text-center"><div class="text-2xl font-black text-accent-light">${totalMins}</div><div class="text-xs text-muted">Total Minutes</div></div>
+    <div class="bg-bg-800 rounded-xl p-4 text-center"><div class="text-2xl font-black text-accent-light">${totalSess}</div><div class="text-xs text-muted">Total Sessions</div></div>
+  `;
+
+  document.getElementById('comm-logs').innerHTML = logs.map(l => `
+    <tr class="border-b border-bg-600/50 hover:bg-bg-800/50">
+      <td class="py-2 text-white">${l.date}</td>
+      <td class="text-right">${l.communication_minutes}</td>
+      <td class="text-right">${l.communication_sessions}</td>
+      <td class="text-left pl-4 text-muted text-xs max-w-xs truncate">${l.communication_notes || '-'}</td>
+    </tr>
+  `).join('') || '<tr><td colspan="4" class="py-4 text-center text-muted">No sessions logged yet</td></tr>';
+}
+
+// --- 75 HARD ---
+const hard75Tasks = [
+  { id: 'workout1', label: 'Workout #1 (45 min)', icon: '💪' },
+  { id: 'workout2_outdoor', label: 'Workout #2 — Outdoor (45 min)', icon: '🌤️' },
+  { id: 'reading_10_pages', label: 'Read 10 Pages (non-fiction)', icon: '📖' },
+  { id: 'water_gallon', label: 'Drink 1 Gallon Water', icon: '💧' },
+  { id: 'diet_followed', label: 'Follow Diet (no cheats, no alcohol)', icon: '🥗' },
+  { id: 'progress_photo', label: 'Progress Photo', icon: '📸' },
+];
+
+async function load75Hard() {
+  const data = await api('GET', `/75-hard/${today}`);
+  const container = document.getElementById('hard75-tasks');
+  container.innerHTML = hard75Tasks.map(t => `
+    <div class="flex items-center gap-4 bg-bg-800 rounded-xl p-4 border border-bg-600 hover:border-accent/20 transition">
+      <input type="checkbox" id="h75-${t.id}" class="checkbox-custom" ${data?.[t.id] ? 'checked' : ''} onchange="update75HardCount()">
+      <span class="text-lg">${t.icon}</span>
+      <span class="text-sm font-medium text-white">${t.label}</span>
+    </div>
+  `).join('');
+  update75HardCount();
+
+  // Streak — fetch last 75 days
+  let streak = 0;
+  for (let i = 0; i < 75; i++) {
+    const d = new Date(Date.now() - i * 86400000).toISOString().split('T')[0];
+    const r = await api('GET', `/75-hard/${d}`);
+    if (r?.all_complete) streak++;
+    else if (i > 0) break; // allow today to be incomplete
+    else if (i === 0 && !r?.all_complete) break;
+  }
+  document.getElementById('hard75-streak').textContent = streak;
+  document.getElementById('hard75-progress').style.width = `${(streak / 75) * 100}%`;
+  document.getElementById('hard75-progress-text').textContent = `${streak} / 75 days`;
+}
+
+function update75HardCount() {
+  let count = 0;
+  hard75Tasks.forEach(t => { if (document.getElementById(`h75-${t.id}`)?.checked) count++; });
+  const card = document.getElementById('hard75-result-card');
+  if (count === 6) {
+    card.innerHTML = '<div class="text-center"><div class="text-4xl mb-2">🔥</div><div class="text-win text-2xl font-black">DAY COMPLETE</div><div class="text-muted text-sm mt-1">All 6 tasks done</div></div>';
+    card.className = 'glass rounded-2xl p-6 glow-green';
+  } else {
+    card.innerHTML = `<div class="text-center"><div class="text-4xl mb-2">⚡</div><div class="text-warn text-2xl font-black">${count}/6</div><div class="text-muted text-sm mt-1">${6 - count} remaining</div></div>`;
+    card.className = 'glass rounded-2xl p-6';
+  }
+}
+
+async function save75Hard() {
+  const data = { date: today };
+  hard75Tasks.forEach(t => { data[t.id] = document.getElementById(`h75-${t.id}`).checked; });
+  const r = await api('POST', '/75-hard', data);
+  if (r) { toast('75 Hard saved!'); load75Hard(); }
+  else toast('Failed to save', 'error');
+}
+
+// --- INTEGRATIONS ---
+async function loadIntegrations() {
+  const status = await api('GET', '/integrations/status');
+  if (!status) return;
+
+  // WHOOP
+  if (status.whoop?.connected) {
+    document.getElementById('whoop-config').classList.add('hidden');
+    document.getElementById('whoop-connected').classList.remove('hidden');
+    document.getElementById('whoop-status').innerHTML = '<span class="px-2 py-1 bg-win/20 text-win text-xs rounded-lg font-medium">Connected</span>';
+    document.getElementById('whoop-pull-btn').classList.remove('hidden');
+  } else {
+    document.getElementById('whoop-config').classList.remove('hidden');
+    document.getElementById('whoop-connected').classList.add('hidden');
+    document.getElementById('whoop-status').innerHTML = '<span class="px-2 py-1 bg-bg-600 text-muted text-xs rounded-lg font-medium">Not connected</span>';
+    if (status.whoop?.configured) {
+      const authData = await api('GET', '/integrations/whoop/auth-url');
+      if (authData?.url) {
+        document.getElementById('whoop-auth-link').innerHTML = `<a href="${authData.url}" target="_blank" class="text-accent-light text-sm underline hover:text-white transition">Click here to authorize WHOOP</a>`;
+      }
+    }
+  }
+
+  // HEVY
+  if (status.hevy?.connected) {
+    document.getElementById('hevy-config').classList.add('hidden');
+    document.getElementById('hevy-connected').classList.remove('hidden');
+    document.getElementById('hevy-status').innerHTML = '<span class="px-2 py-1 bg-blue-600/20 text-blue-400 text-xs rounded-lg font-medium">Connected</span>';
+    document.getElementById('hevy-pull-btn').classList.remove('hidden');
+    const count = await api('GET', '/integrations/hevy/count');
+    if (count) document.getElementById('hevy-workout-count').textContent = `${count.workout_count} workouts tracked`;
+  } else {
+    document.getElementById('hevy-config').classList.remove('hidden');
+    document.getElementById('hevy-connected').classList.add('hidden');
+    document.getElementById('hevy-status').innerHTML = '<span class="px-2 py-1 bg-bg-600 text-muted text-xs rounded-lg font-medium">Not connected</span>';
+  }
+}
+
+async function configureWhoop() {
+  const clientId = document.getElementById('whoop-client-id').value;
+  const clientSecret = document.getElementById('whoop-client-secret').value;
+  if (!clientId || !clientSecret) { toast('Both fields required', 'error'); return; }
+  await api('POST', `/integrations/whoop/configure?client_id=${encodeURIComponent(clientId)}&client_secret=${encodeURIComponent(clientSecret)}`);
+  toast('WHOOP credentials saved!');
+  loadIntegrations();
+}
+
+async function disconnectWhoop() {
+  await fetch(API + '/integrations/whoop', { method: 'DELETE' });
+  toast('WHOOP disconnected');
+  document.getElementById('whoop-pull-btn').classList.add('hidden');
+  loadIntegrations();
+}
+
+async function configureHevy() {
+  const apiKey = document.getElementById('hevy-api-key').value;
+  if (!apiKey) { toast('API key required', 'error'); return; }
+  await api('POST', `/integrations/hevy/configure?api_key=${encodeURIComponent(apiKey)}`);
+  toast('Hevy API key saved!');
+  loadIntegrations();
+}
+
+async function disconnectHevy() {
+  await fetch(API + '/integrations/hevy', { method: 'DELETE' });
+  toast('Hevy disconnected');
+  document.getElementById('hevy-pull-btn').classList.add('hidden');
+  loadIntegrations();
+}
+
+async function pullWhoop() {
+  const metrics = await api('GET', `/integrations/whoop/metrics/${today}`);
+  if (!metrics) { toast('Failed to pull WHOOP data', 'error'); return; }
+  if (metrics.recovery != null) { document.getElementById('log-recovery').value = metrics.recovery; document.getElementById('val-recovery').textContent = metrics.recovery; }
+  if (metrics.strain != null) { document.getElementById('log-strain').value = metrics.strain; document.getElementById('val-strain').textContent = metrics.strain; }
+  if (metrics.sleep_score != null) { document.getElementById('log-sleep').value = metrics.sleep_score; document.getElementById('val-sleep').textContent = metrics.sleep_score; }
+  if (metrics.rhr) document.getElementById('log-rhr').value = metrics.rhr;
+  if (metrics.hrv) document.getElementById('log-hrv').value = metrics.hrv;
+  if (metrics.weight) document.getElementById('log-weight').value = metrics.weight;
+  toast('WHOOP data imported!');
+}
+
+async function pullHevyWorkouts() {
+  const workouts = await api('GET', `/integrations/hevy/workouts/${today}`);
+  const container = document.getElementById('hevy-workouts');
+  if (!workouts || workouts.length === 0) {
+    container.innerHTML = '<div class="text-muted text-sm">No workouts found for today.</div>';
+    return;
+  }
+  container.innerHTML = workouts.map(w => `
+    <div class="bg-bg-800 rounded-xl p-4 border border-bg-600 mb-3">
+      <div class="flex items-center justify-between mb-2">
+        <div class="font-bold text-white">${w.title}</div>
+        <div class="text-xs text-muted">${w.duration_minutes} min</div>
+      </div>
+      <div class="text-sm text-accent-light mb-2">Total Volume: ${w.total_volume_lbs} lbs</div>
+      <div class="space-y-1">
+        ${w.exercises.map(e => `
+          <div class="flex justify-between text-sm">
+            <span class="text-gray-300">${e.title}</span>
+            <span class="text-muted">${e.top_set ? e.top_set.weight_lbs + ' lbs × ' + e.top_set.reps : '-'}</span>
+          </div>
+        `).join('')}
+      </div>
+    </div>
+  `).join('');
+}
+
+// --- INIT ---
+async function init() {
+  document.getElementById('today-date').textContent = new Date().toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
+
+  showPage('today');
+  loadHeaderStats();
+
+  // Load existing power list
+  const pl = await api('GET', `/power-list/${today}`);
+  if (pl) {
+    const tasks = [];
+    for (let i = 1; i <= 5; i++) {
+      tasks.push({ name: pl[`task${i}_name`], done: pl[`task${i}_done`] });
+    }
+    renderPowerList(tasks);
+  } else {
+    renderPowerList(defaultTasks);
+  }
+
+  // Load existing daily log
+  const log = await api('GET', `/daily-log/${today}`);
+  if (log) populateDailyLog(log);
+
+  // Check integrations for pull buttons
+  const status = await api('GET', '/integrations/status');
+  if (status?.whoop?.connected) document.getElementById('whoop-pull-btn').classList.remove('hidden');
+  if (status?.hevy?.connected) document.getElementById('hevy-pull-btn').classList.remove('hidden');
+}
+
+init();
+</script>
+</body>
+</html>
