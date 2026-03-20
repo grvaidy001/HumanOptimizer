@@ -1006,11 +1006,10 @@ def whoop_summary(days: int = 90) -> dict:
 
 
 @mcp.tool()
-def whoop_debug(days_back: int = 3) -> dict:
-    """Debug WHOOP API — fetch raw data from all endpoints to diagnose missing fields.
+def whoop_debug() -> dict:
+    """Debug WHOOP API — tests every endpoint path to find where sleep/recovery data lives.
 
-    Returns the FULL raw API response for recovery, sleep, and cycles.
-    Use this to see exactly what WHOOP returns.
+    Tests: collection endpoints, per-cycle recovery, per-sleep-id, and raw responses.
     """
     from app.providers.whoop import _get_valid_token, _api_get, _paginate_all
     conn = get_connection()
@@ -1019,36 +1018,40 @@ def whoop_debug(days_back: int = 3) -> dict:
     if not token:
         return {"error": "No valid token"}
 
-    end_d = date.today()
-    start_d = end_d - timedelta(days=days_back)
-    start = f"{start_d.isoformat()}T00:00:00.000Z"
-    end = f"{(end_d + timedelta(days=1)).isoformat()}T23:59:59.999Z"
-
     results = {}
 
-    # Fetch with date range
-    for name, path in [("recovery", "/recovery"), ("sleep", "/activity/sleep"), ("cycles", "/cycle")]:
-        try:
-            data = _api_get(token, path, {"start": start, "end": end, "limit": 5})
-            records = data.get("records", [])
-            results[f"{name}_with_dates"] = {
-                "count": len(records),
-                "records": records,
-            }
-        except Exception as e:
-            results[f"{name}_with_dates"] = {"error": str(e)}
+    # 1. Get latest cycles (always works)
+    cycle_data = _api_get(token, "/cycle", {"limit": 3})
+    cycles = cycle_data.get("records", [])
+    results["cycles"] = {"count": len(cycles), "ids": [c.get("id") for c in cycles]}
 
-    # Also fetch latest without date filter
-    for name, path in [("recovery", "/recovery"), ("sleep", "/activity/sleep"), ("cycles", "/cycle")]:
-        try:
-            data = _api_get(token, path, {"limit": 2})
-            records = data.get("records", [])
-            results[f"{name}_latest"] = {
-                "count": len(records),
-                "records": records,
-            }
-        except Exception as e:
-            results[f"{name}_latest"] = {"error": str(e)}
+    # 2. Try collection endpoints
+    for name, path in [("recovery_collection", "/recovery"), ("sleep_collection", "/activity/sleep")]:
+        data = _api_get(token, path, {"limit": 3})
+        records = data.get("records", [])
+        results[name] = {"count": len(records), "has_data": bool(records)}
+        if records:
+            results[name]["first_record"] = records[0]
+
+    # 3. Try per-cycle recovery (THE KEY TEST)
+    if cycles:
+        cycle_id = cycles[0]["id"]
+        results["per_cycle_test"] = {"cycle_id": cycle_id}
+
+        rec = _api_get(token, f"/cycle/{cycle_id}/recovery", {})
+        results["per_cycle_test"]["recovery_raw"] = rec
+        results["per_cycle_test"]["has_score"] = bool(rec.get("score"))
+
+        # If recovery has sleep_id, fetch that sleep
+        sleep_id = rec.get("sleep_id")
+        if sleep_id:
+            results["per_cycle_test"]["sleep_id"] = sleep_id
+            slp = _api_get(token, f"/activity/sleep/{sleep_id}", {})
+            results["per_cycle_test"]["sleep_raw"] = slp
+            results["per_cycle_test"]["sleep_has_score"] = bool(slp.get("score"))
+        else:
+            results["per_cycle_test"]["sleep_id"] = None
+            results["per_cycle_test"]["note"] = "No sleep_id in recovery response"
 
     # Also try profile
     try:
