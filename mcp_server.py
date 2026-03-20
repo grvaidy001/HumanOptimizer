@@ -939,6 +939,41 @@ def whoop_fetch_range(start_date: str, end_date: str = "") -> dict:
 
 
 @mcp.tool()
+def whoop_debug() -> dict:
+    """Debug WHOOP API — fetch latest data without date filters to verify connection works."""
+    from app.providers.whoop import _get_valid_token, _api_get
+    conn = get_connection()
+    token = _get_valid_token(conn)
+    conn.close()
+    if not token:
+        return {"error": "No valid token"}
+
+    results = {}
+    for endpoint in ["/recovery", "/cycle", "/activity/sleep"]:
+        try:
+            data = _api_get(token, endpoint, {"limit": 1})
+            records = data.get("records", [])
+            results[endpoint] = {
+                "status": "ok" if records else "empty",
+                "count": len(records),
+                "sample": records[0] if records else None,
+            }
+            if "error" in data:
+                results[endpoint] = {"status": "error", "detail": data}
+        except Exception as e:
+            results[endpoint] = {"status": "error", "detail": str(e)}
+
+    # Also try profile
+    try:
+        profile = _api_get(token, "/user/profile/basic", {})
+        results["profile"] = profile
+    except Exception as e:
+        results["profile"] = {"error": str(e)}
+
+    return results
+
+
+@mcp.tool()
 def whoop_status() -> dict:
     """Check if WHOOP is connected and tokens are valid."""
     from app.providers.whoop import is_connected, CLIENT_ID

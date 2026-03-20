@@ -113,6 +113,10 @@ def _api_get(token: str, path: str, params: dict = None) -> dict:
         params=params or {},
         timeout=15,
     )
+    if resp.status_code == 404:
+        return {"records": []}
+    if resp.status_code == 401:
+        return {"error": "Token expired or invalid", "status": 401}
     resp.raise_for_status()
     return resp.json()
 
