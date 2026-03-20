@@ -1,11 +1,7 @@
-"""Combined server: MCP (streamable-http) + WHOOP webhooks.
+"""Combined server: MCP + WHOOP webhooks + OAuth callback.
 
-For cloud deployment, this runs both:
-1. MCP server at /mcp (Claude connects here)
-2. WHOOP webhook receiver at /whoop/webhook (WHOOP pushes here)
-3. WHOOP OAuth callback at /whoop/callback
-
-For local development, use mcp_server.py directly (stdio transport).
+Adds custom routes to the MCP Starlette app so everything
+shares the same lifespan and session manager.
 """
 
 import os
@@ -13,7 +9,7 @@ import sys
 import json
 import hmac
 import hashlib
-from datetime import date, timedelta
+from datetime import date
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
@@ -21,52 +17,32 @@ sys.path.insert(0, str(Path(__file__).parent))
 from dotenv import load_dotenv
 load_dotenv(Path(__file__).parent / ".env")
 
-from fastapi import FastAPI, Request
-from fastapi.responses import HTMLResponse, JSONResponse
+from starlette.routing import Route
+from starlette.requests import Request
+from starlette.responses import JSONResponse, HTMLResponse
 import uvicorn
 
 from app.db import init_db, get_connection, sync_if_turso
 
 init_db()
 
-app = FastAPI(title="HumanOptimizer")
-
-# ============================================================
-# WHOOP WEBHOOK
-# ============================================================
+# Import MCP server and add custom routes BEFORE building the app
+from mcp_server import mcp
 
 WHOOP_WEBHOOK_SECRET = os.getenv("WHOOP_WEBHOOK_SECRET", "")
 
-WHOOP_EVENT_MAP = {
-    "recovery.updated": "recovery",
-    "recovery.created": "recovery",
-    "sleep.updated": "sleep",
-    "sleep.created": "sleep",
-    "workout.updated": "workout",
-    "workout.created": "workout",
-}
+
+async def health(request: Request):
+    return JSONResponse({"status": "ok", "tools": 40})
 
 
-@app.post("/whoop/webhook")
 async def whoop_webhook(request: Request):
-    """Receive WHOOP webhook events.
-
-    WHOOP pushes these events automatically:
-    - recovery.created / recovery.updated
-    - sleep.created / sleep.updated
-    - workout.created / workout.updated
-
-    When received, we pull the full data for that date and save it.
-    """
     body = await request.body()
 
-    # Verify signature if secret is configured
     if WHOOP_WEBHOOK_SECRET:
         signature = request.headers.get("x-whoop-signature", "")
         expected = hmac.new(
-            WHOOP_WEBHOOK_SECRET.encode(),
-            body,
-            hashlib.sha256
+            WHOOP_WEBHOOK_SECRET.encode(), body, hashlib.sha256
         ).hexdigest()
         if not hmac.compare_digest(signature, expected):
             return JSONResponse({"error": "invalid signature"}, status_code=401)
@@ -79,10 +55,14 @@ async def whoop_webhook(request: Request):
     event_type = payload.get("type", "")
     event_data = payload.get("data", {})
 
-    if event_type not in WHOOP_EVENT_MAP:
+    valid_events = {
+        "recovery.created", "recovery.updated",
+        "sleep.created", "sleep.updated",
+        "workout.created", "workout.updated",
+    }
+    if event_type not in valid_events:
         return JSONResponse({"status": "ignored", "event": event_type})
 
-    # Pull full data for the date and save
     from app.providers.whoop import fetch_all_daily, is_connected
 
     conn = get_connection()
@@ -90,11 +70,10 @@ async def whoop_webhook(request: Request):
         conn.close()
         return JSONResponse({"error": "WHOOP not authenticated"}, status_code=401)
 
-    # Extract date from the event
     event_date = None
     for field in ["created_at", "updated_at", "start"]:
         if field in event_data:
-            event_date = event_data[field][:10]  # "2026-03-20T..." → "2026-03-20"
+            event_date = event_data[field][:10]
             break
     if not event_date:
         event_date = date.today().isoformat()
@@ -113,26 +92,14 @@ async def whoop_webhook(request: Request):
               json.dumps(data)))
         conn.commit()
 
-        # Also update daily_logs
         existing = conn.execute("SELECT * FROM daily_logs WHERE date = ?", (event_date,)).fetchone()
         if existing:
-            updates = []
-            params = []
-            if data.get("recovery_score") is not None:
-                updates.append("recovery = ?")
-                params.append(data["recovery_score"])
-            if data.get("strain") is not None:
-                updates.append("strain = ?")
-                params.append(int(data["strain"]))
-            if data.get("sleep_performance") is not None:
-                updates.append("sleep_score = ?")
-                params.append(data["sleep_performance"])
-            if data.get("rhr") is not None:
-                updates.append("rhr = ?")
-                params.append(data["rhr"])
-            if data.get("hrv") is not None:
-                updates.append("hrv = ?")
-                params.append(int(data["hrv"]))
+            updates, params = [], []
+            for key, col in [("recovery_score", "recovery"), ("strain", "strain"),
+                             ("sleep_performance", "sleep_score"), ("rhr", "rhr"), ("hrv", "hrv")]:
+                if data.get(key) is not None:
+                    updates.append(f"{col} = ?")
+                    params.append(int(data[key]) if isinstance(data[key], float) else data[key])
             if updates:
                 params.append(event_date)
                 conn.execute(f"UPDATE daily_logs SET {', '.join(updates)} WHERE date = ?", params)
@@ -141,26 +108,17 @@ async def whoop_webhook(request: Request):
         sync_if_turso(conn)
 
     conn.close()
-    return JSONResponse({
-        "status": "saved",
-        "event": event_type,
-        "date": event_date,
-        "recovery": data.get("recovery_score") if "error" not in data else None,
-    })
+    return JSONResponse({"status": "saved", "event": event_type, "date": event_date})
 
 
-# ============================================================
-# WHOOP OAUTH CALLBACK
-# ============================================================
+async def whoop_callback(request: Request):
+    code = request.query_params.get("code", "")
+    error = request.query_params.get("error", "")
 
-@app.get("/whoop/callback")
-async def whoop_callback(code: str = "", state: str = "", error: str = ""):
-    """Handle WHOOP OAuth redirect. Exchanges code for tokens."""
     if error:
         return HTMLResponse(f"<h1>WHOOP Auth Error</h1><p>{error}</p>")
-
     if not code:
-        return HTMLResponse("<h1>Missing code</h1><p>No authorization code received.</p>")
+        return HTMLResponse("<h1>Missing code</h1>")
 
     from app.providers.whoop import exchange_code, save_tokens
 
@@ -170,33 +128,24 @@ async def whoop_callback(code: str = "", state: str = "", error: str = ""):
         save_tokens(conn, token_data)
         sync_if_turso(conn)
         conn.close()
-        return HTMLResponse("""
-            <h1>WHOOP Connected!</h1>
-            <p>Your WHOOP account is now linked to HumanOptimizer.</p>
-            <p>You can close this window and go back to Claude.</p>
-        """)
+        return HTMLResponse(
+            "<h1>WHOOP Connected!</h1>"
+            "<p>Your WHOOP account is now linked. You can close this window.</p>"
+        )
     except Exception as e:
         return HTMLResponse(f"<h1>Error</h1><p>{str(e)}</p>")
 
 
-# ============================================================
-# HEALTH CHECK
-# ============================================================
+# Add custom routes to MCP's Starlette app (before streamable_http_app builds it)
+mcp._custom_starlette_routes.extend([
+    Route("/health", health, methods=["GET"]),
+    Route("/whoop/webhook", whoop_webhook, methods=["POST"]),
+    Route("/whoop/callback", whoop_callback, methods=["GET"]),
+])
 
-@app.get("/health")
-async def health():
-    return {"status": "ok", "tools": 36}
-
-
-# ============================================================
-# MOUNT MCP SERVER
-# ============================================================
-
-from mcp_server import mcp
-
-# Mount MCP's streamable-http app at /mcp
-mcp_app = mcp.streamable_http_app()
-app.mount("/mcp", mcp_app)
+# Build the combined app — MCP handles /mcp, our routes handle the rest
+# All share the same lifespan (session manager)
+app = mcp.streamable_http_app()
 
 
 if __name__ == "__main__":
