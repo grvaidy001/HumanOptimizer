@@ -16,7 +16,7 @@ import requests
 
 AUTH_URL = "https://api.prod.whoop.com/oauth/oauth2/auth"
 TOKEN_URL = "https://api.prod.whoop.com/oauth/oauth2/token"
-API_BASE = "https://api.prod.whoop.com/developer/v1"
+API_BASE = "https://api.prod.whoop.com/developer/v2"
 
 SCOPES = "read:recovery read:sleep read:workout read:cycles read:body_measurement read:profile offline"
 
