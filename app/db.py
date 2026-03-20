@@ -263,15 +263,25 @@ SCHEMA_SQLITE = """
         recovery_score INTEGER,
         hrv REAL,
         rhr INTEGER,
+        spo2 REAL,
+        skin_temp REAL,
         sleep_score INTEGER,
         sleep_hours REAL,
+        sleep_efficiency REAL,
+        sleep_consistency REAL,
+        rem_hours REAL,
+        deep_sleep_hours REAL,
+        light_sleep_hours REAL,
+        time_in_bed_hours REAL,
+        disturbances INTEGER,
+        sleep_cycles INTEGER,
+        sleep_needed_hours REAL,
+        sleep_debt_hours REAL,
+        respiratory_rate REAL,
         strain REAL,
         calories_burned INTEGER,
         avg_hr INTEGER,
         max_hr INTEGER,
-        respiratory_rate REAL,
-        spo2 REAL,
-        skin_temp REAL,
         raw_json TEXT DEFAULT '',
         synced_at TEXT DEFAULT (datetime('now'))
     );
@@ -427,8 +437,12 @@ SCHEMA_POSTGRES = """
     );
     CREATE TABLE IF NOT EXISTS whoop_daily (
         date TEXT PRIMARY KEY, recovery_score INTEGER, hrv REAL, rhr INTEGER,
-        sleep_score INTEGER, sleep_hours REAL, strain REAL, calories_burned INTEGER,
-        avg_hr INTEGER, max_hr INTEGER, respiratory_rate REAL, spo2 REAL, skin_temp REAL,
+        spo2 REAL, skin_temp REAL,
+        sleep_score INTEGER, sleep_hours REAL, sleep_efficiency REAL, sleep_consistency REAL,
+        rem_hours REAL, deep_sleep_hours REAL, light_sleep_hours REAL, time_in_bed_hours REAL,
+        disturbances INTEGER, sleep_cycles INTEGER, sleep_needed_hours REAL, sleep_debt_hours REAL,
+        respiratory_rate REAL, strain REAL, calories_burned INTEGER,
+        avg_hr INTEGER, max_hr INTEGER,
         raw_json TEXT DEFAULT '', synced_at TIMESTAMP DEFAULT NOW()
     );
     CREATE TABLE IF NOT EXISTS whoop_tokens (

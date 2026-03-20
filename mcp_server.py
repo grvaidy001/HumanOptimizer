@@ -869,16 +869,25 @@ def whoop_fetch_today(target_date: str = "") -> dict:
         conn.close()
         return data
 
-    # Persist to whoop_daily table
+    # Persist all fields to whoop_daily table
     conn.execute("""
         INSERT OR REPLACE INTO whoop_daily
-        (date, recovery_score, hrv, rhr, sleep_score, sleep_hours, strain,
-         calories_burned, avg_hr, max_hr, respiratory_rate, spo2, skin_temp, raw_json)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        (date, recovery_score, hrv, rhr, spo2, skin_temp,
+         sleep_score, sleep_hours, sleep_efficiency, sleep_consistency,
+         rem_hours, deep_sleep_hours, light_sleep_hours, time_in_bed_hours,
+         disturbances, sleep_cycles, sleep_needed_hours, sleep_debt_hours,
+         respiratory_rate, strain, calories_burned, avg_hr, max_hr, raw_json)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     """, (d, data.get("recovery_score"), data.get("hrv"), data.get("rhr"),
-          data.get("sleep_performance"), data.get("sleep_hours"), data.get("strain"),
+          data.get("spo2"), data.get("skin_temp"),
+          data.get("sleep_performance"), data.get("sleep_hours"),
+          data.get("sleep_efficiency"), data.get("sleep_consistency"),
+          data.get("rem_hours"), data.get("deep_sleep_hours"),
+          data.get("light_sleep_hours"), data.get("time_in_bed_hours"),
+          data.get("disturbances"), data.get("sleep_cycles"),
+          data.get("sleep_needed_hours"), data.get("sleep_debt_hours"),
+          data.get("respiratory_rate"), data.get("strain"),
           data.get("calories_burned"), data.get("avg_hr"), data.get("max_hr"),
-          data.get("respiratory_rate"), data.get("spo2"), data.get("skin_temp"),
           json.dumps(data)))
     conn.commit()
     sync_if_turso(conn)
@@ -913,20 +922,33 @@ def whoop_fetch_range(days: int = 10) -> dict:
         d = data["date"]
         conn.execute("""
             INSERT OR REPLACE INTO whoop_daily
-            (date, recovery_score, hrv, rhr, sleep_score, sleep_hours, strain,
-             calories_burned, avg_hr, max_hr, respiratory_rate, spo2, skin_temp, raw_json)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            (date, recovery_score, hrv, rhr, spo2, skin_temp,
+             sleep_score, sleep_hours, sleep_efficiency, sleep_consistency,
+             rem_hours, deep_sleep_hours, light_sleep_hours, time_in_bed_hours,
+             disturbances, sleep_cycles, sleep_needed_hours, sleep_debt_hours,
+             respiratory_rate, strain, calories_burned, avg_hr, max_hr, raw_json)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, (d, data.get("recovery_score"), data.get("hrv"), data.get("rhr"),
-              data.get("sleep_performance"), data.get("sleep_hours"), data.get("strain"),
+              data.get("spo2"), data.get("skin_temp"),
+              data.get("sleep_performance"), data.get("sleep_hours"),
+              data.get("sleep_efficiency"), data.get("sleep_consistency"),
+              data.get("rem_hours"), data.get("deep_sleep_hours"),
+              data.get("light_sleep_hours"), data.get("time_in_bed_hours"),
+              data.get("disturbances"), data.get("sleep_cycles"),
+              data.get("sleep_needed_hours"), data.get("sleep_debt_hours"),
+              data.get("respiratory_rate"), data.get("strain"),
               data.get("calories_burned"), data.get("avg_hr"), data.get("max_hr"),
-              data.get("respiratory_rate"), data.get("spo2"), data.get("skin_temp"),
               json.dumps(data)))
         saved.append({
             "date": d,
             "recovery": data.get("recovery_score"),
             "hrv": data.get("hrv"),
+            "rhr": data.get("rhr"),
             "strain": data.get("strain"),
             "sleep_hours": data.get("sleep_hours"),
+            "sleep_performance": data.get("sleep_performance"),
+            "deep_sleep": data.get("deep_sleep_hours"),
+            "rem": data.get("rem_hours"),
         })
 
     conn.commit()

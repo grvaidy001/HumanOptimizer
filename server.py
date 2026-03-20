@@ -82,13 +82,22 @@ async def whoop_webhook(request: Request):
     if "error" not in data:
         conn.execute("""
             INSERT OR REPLACE INTO whoop_daily
-            (date, recovery_score, hrv, rhr, sleep_score, sleep_hours, strain,
-             calories_burned, avg_hr, max_hr, respiratory_rate, spo2, skin_temp, raw_json)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            (date, recovery_score, hrv, rhr, spo2, skin_temp,
+             sleep_score, sleep_hours, sleep_efficiency, sleep_consistency,
+             rem_hours, deep_sleep_hours, light_sleep_hours, time_in_bed_hours,
+             disturbances, sleep_cycles, sleep_needed_hours, sleep_debt_hours,
+             respiratory_rate, strain, calories_burned, avg_hr, max_hr, raw_json)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, (event_date, data.get("recovery_score"), data.get("hrv"), data.get("rhr"),
-              data.get("sleep_performance"), data.get("sleep_hours"), data.get("strain"),
+              data.get("spo2"), data.get("skin_temp"),
+              data.get("sleep_performance"), data.get("sleep_hours"),
+              data.get("sleep_efficiency"), data.get("sleep_consistency"),
+              data.get("rem_hours"), data.get("deep_sleep_hours"),
+              data.get("light_sleep_hours"), data.get("time_in_bed_hours"),
+              data.get("disturbances"), data.get("sleep_cycles"),
+              data.get("sleep_needed_hours"), data.get("sleep_debt_hours"),
+              data.get("respiratory_rate"), data.get("strain"),
               data.get("calories_burned"), data.get("avg_hr"), data.get("max_hr"),
-              data.get("respiratory_rate"), data.get("spo2"), data.get("skin_temp"),
               json.dumps(data)))
         conn.commit()
 
