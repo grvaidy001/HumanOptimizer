@@ -1867,6 +1867,612 @@ def delete_meal(meal_id: int) -> dict:
     return {"deleted": meal["description"], "date": meal["date"]}
 
 
+# ============================================================
+# COMMUNICATION: RECORDING FEEDBACK
+# ============================================================
+
+DAY_ONE = date(2026, 3, 31)
+
+
+def _calc_day_number(target_date: str) -> int:
+    """Calculate day number from date. Day 1 = March 31, 2026."""
+    d = date.fromisoformat(target_date)
+    return (d - DAY_ONE).days + 1
+
+
+@mcp.tool()
+def save_recording_feedback(
+    day_number: int = 0,
+    target_date: str = "",
+    transcript: str = "",
+    duration_seconds: int = 0,
+    word_count: int = 0,
+    topic: str = "",
+    framework_used: str = "",
+    stage_academy_module: str = "",
+    power_word_assigned: str = "",
+    power_word_used: bool = False,
+    pace_score: int = 0,
+    pitch_score: int = 0,
+    pause_score: int = 0,
+    projection_score: int = 0,
+    clarity_score: int = 0,
+    confidence_score: int = 0,
+    energy_score: int = 0,
+    structure_score: int = 0,
+    hook_score: int = 0,
+    closing_score: int = 0,
+    vulnerability_score: int = 0,
+    filler_word_count: int = 0,
+    filler_words_detail: str = "",
+    overall_score: int = 0,
+    top_strength: str = "",
+    top_fix: str = "",
+    feedback_text: str = "",
+    benchmark_style: str = "",
+    benchmark_notes: str = "",
+    coach: str = "chatgpt",
+) -> dict:
+    """Save speech recording feedback from AI coach (ChatGPT or Claude).
+
+    Voice scores (pace, pitch, pause, projection, clarity, confidence, energy) are 1-5 scale.
+    Content scores (structure) are 1-10 scale.
+    Hook, closing, vulnerability scores are 1-5 scale.
+    Overall score is 1-10 scale.
+
+    framework_used options: 'WHAT_SO_NOW_HOOK', 'PAS', 'CONTRARIAN', 'NONE'
+    benchmark_style options: 'ranganathan', 'peterson', 'vinh_giang'
+    coach options: 'chatgpt', 'claude', 'self'
+    """
+    d = target_date or date.today().isoformat()
+    dn = day_number or _calc_day_number(d)
+    wpm = round(word_count / (duration_seconds / 60), 1) if duration_seconds > 0 and word_count > 0 else 0
+
+    conn = get_connection()
+    conn.execute("""
+        INSERT INTO recording_feedback
+        (day_number, target_date, transcript, duration_seconds, word_count, words_per_minute,
+         topic, framework_used, stage_academy_module, power_word_assigned, power_word_used,
+         pace_score, pitch_score, pause_score, projection_score, clarity_score, confidence_score,
+         energy_score, structure_score, hook_score, closing_score, vulnerability_score,
+         filler_word_count, filler_words_detail, overall_score, top_strength, top_fix,
+         feedback_text, benchmark_style, benchmark_notes, coach)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    """, (dn, d, transcript, duration_seconds, word_count, wpm,
+          topic, framework_used, stage_academy_module, power_word_assigned, int(power_word_used),
+          pace_score, pitch_score, pause_score, projection_score, clarity_score, confidence_score,
+          energy_score, structure_score, hook_score, closing_score, vulnerability_score,
+          filler_word_count, filler_words_detail, overall_score, top_strength, top_fix,
+          feedback_text, benchmark_style, benchmark_notes, coach))
+    conn.commit()
+    sync_if_turso(conn)
+    conn.close()
+
+    voice_avg = round(sum([pace_score, pitch_score, pause_score, projection_score,
+                           clarity_score, confidence_score, energy_score]) / 7, 1) if any([
+                               pace_score, pitch_score, pause_score, projection_score,
+                               clarity_score, confidence_score, energy_score]) else 0
+
+    return {
+        "day": dn, "date": d, "topic": topic, "overall_score": overall_score,
+        "voice_avg": voice_avg, "wpm": wpm, "filler_words": filler_word_count,
+        "top_strength": top_strength, "top_fix": top_fix, "coach": coach,
+    }
+
+
+@mcp.tool()
+def get_recording_feedback(day_number: int = 0, target_date: str = "") -> dict:
+    """Get recording feedback for a specific day. Provide either day_number or target_date."""
+    conn = get_connection()
+    if day_number:
+        row = conn.execute("SELECT * FROM recording_feedback WHERE day_number = ? ORDER BY created_at DESC",
+                           (day_number,)).fetchone()
+    elif target_date:
+        row = conn.execute("SELECT * FROM recording_feedback WHERE target_date = ? ORDER BY created_at DESC",
+                           (target_date,)).fetchone()
+    else:
+        row = conn.execute("SELECT * FROM recording_feedback ORDER BY created_at DESC").fetchone()
+    conn.close()
+    if not row:
+        return {"error": "No recording feedback found"}
+    return dict(row)
+
+
+@mcp.tool()
+def get_recording_history(days: int = 30) -> dict:
+    """Get recording feedback history for trend analysis.
+
+    Returns all recordings with scores, averages, trends (improving/declining/stable),
+    best/worst recordings, power word usage rate, and framework adherence rate.
+    """
+    cutoff = (date.today() - timedelta(days=days)).isoformat()
+    conn = get_connection()
+    rows = conn.execute(
+        "SELECT * FROM recording_feedback WHERE target_date >= ? ORDER BY target_date",
+        (cutoff,)
+    ).fetchall()
+    conn.close()
+
+    if not rows:
+        return {"recordings": [], "count": 0, "message": "No recordings in this period"}
+
+    records = [dict(r) for r in rows]
+    count = len(records)
+
+    # Averages
+    dims = ["pace_score", "pitch_score", "pause_score", "projection_score",
+            "clarity_score", "confidence_score", "energy_score", "overall_score"]
+    avgs = {}
+    for d in dims:
+        vals = [r[d] for r in records if r[d] and r[d] > 0]
+        avgs[d] = round(sum(vals) / len(vals), 1) if vals else 0
+
+    # Trends: compare first half vs second half
+    mid = count // 2
+    trends = {}
+    if mid > 0:
+        for d in dims:
+            first = [r[d] for r in records[:mid] if r[d] and r[d] > 0]
+            second = [r[d] for r in records[mid:] if r[d] and r[d] > 0]
+            if first and second:
+                avg1 = sum(first) / len(first)
+                avg2 = sum(second) / len(second)
+                pct = ((avg2 - avg1) / avg1 * 100) if avg1 > 0 else 0
+                trends[d] = "improving" if pct > 10 else ("declining" if pct < -10 else "stable")
+            else:
+                trends[d] = "insufficient_data"
+
+    # Best/worst
+    scored = [r for r in records if r["overall_score"] and r["overall_score"] > 0]
+    best = max(scored, key=lambda r: r["overall_score"]) if scored else None
+    worst = min(scored, key=lambda r: r["overall_score"]) if scored else None
+
+    # Power word usage rate
+    pw_total = sum(1 for r in records if r.get("power_word_assigned"))
+    pw_used = sum(1 for r in records if r.get("power_word_used"))
+    pw_rate = round(pw_used / pw_total * 100) if pw_total > 0 else 0
+
+    # Framework usage rate
+    fw_total = sum(1 for r in records if r.get("framework_used") and r["framework_used"] != "NONE")
+    fw_rate = round(fw_total / count * 100) if count > 0 else 0
+
+    return {
+        "count": count,
+        "averages": avgs,
+        "trends": trends,
+        "best": {"day": best["day_number"], "date": best["target_date"],
+                 "score": best["overall_score"], "topic": best.get("topic")} if best else None,
+        "worst": {"day": worst["day_number"], "date": worst["target_date"],
+                  "score": worst["overall_score"], "topic": worst.get("topic")} if worst else None,
+        "power_word_usage_rate": pw_rate,
+        "framework_adherence_rate": fw_rate,
+        "recordings": [{
+            "day": r["day_number"], "date": r["target_date"], "topic": r.get("topic"),
+            "duration": r.get("duration_seconds"), "overall_score": r["overall_score"],
+            "pace": r["pace_score"], "pitch": r["pitch_score"], "pause": r["pause_score"],
+            "projection": r["projection_score"], "confidence": r["confidence_score"],
+            "top_strength": r.get("top_strength"), "top_fix": r.get("top_fix"),
+            "power_word_used": bool(r.get("power_word_used")),
+        } for r in records],
+    }
+
+
+# ============================================================
+# COMMUNICATION: OPINION FEEDBACK
+# ============================================================
+
+@mcp.tool()
+def save_opinion_feedback(
+    day_number: int = 0,
+    target_date: str = "",
+    article_source: str = "",
+    article_title: str = "",
+    article_url: str = "",
+    article_lean: str = "",
+    opinion_text: str = "",
+    sentence_count: int = 0,
+    position_first: bool = False,
+    evidence_used: bool = False,
+    counter_destroyed: bool = False,
+    no_hedging: bool = False,
+    no_rhetorical_questions: bool = False,
+    compression_score: int = 0,
+    vocabulary_score: int = 0,
+    conviction_score: int = 0,
+    logic_score: int = 0,
+    overall_score: int = 0,
+    top_fix: str = "",
+    ranganathan_rewrite: str = "",
+    peterson_depth: str = "",
+    feedback_text: str = "",
+    power_word_assigned: str = "",
+    power_word_used: bool = False,
+    coach: str = "chatgpt",
+) -> dict:
+    """Save critical thinking opinion feedback from AI coach.
+
+    article_lean options: 'left', 'right', 'center', 'neutral'
+    Quality scores (compression, vocabulary, conviction, logic) are 1-5 scale.
+    Overall score is 1-10 scale.
+    coach options: 'chatgpt', 'claude', 'self'
+    """
+    d = target_date or date.today().isoformat()
+    dn = day_number or _calc_day_number(d)
+
+    # Count structure checks passed
+    checks = [position_first, evidence_used, counter_destroyed, no_hedging, no_rhetorical_questions]
+    checks_passed = sum(checks)
+
+    conn = get_connection()
+    conn.execute("""
+        INSERT INTO opinion_feedback
+        (day_number, target_date, article_source, article_title, article_url, article_lean,
+         opinion_text, sentence_count, position_first, evidence_used, counter_destroyed,
+         no_hedging, no_rhetorical_questions, compression_score, vocabulary_score,
+         conviction_score, logic_score, overall_score, top_fix, ranganathan_rewrite,
+         peterson_depth, feedback_text, power_word_assigned, power_word_used, coach)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    """, (dn, d, article_source, article_title, article_url, article_lean,
+          opinion_text, sentence_count, int(position_first), int(evidence_used),
+          int(counter_destroyed), int(no_hedging), int(no_rhetorical_questions),
+          compression_score, vocabulary_score, conviction_score, logic_score,
+          overall_score, top_fix, ranganathan_rewrite, peterson_depth, feedback_text,
+          power_word_assigned, int(power_word_used), coach))
+    conn.commit()
+    sync_if_turso(conn)
+    conn.close()
+
+    return {
+        "day": dn, "date": d, "overall_score": overall_score,
+        "checks_passed": f"{checks_passed}/5", "article": article_title,
+        "source": article_source, "top_fix": top_fix, "coach": coach,
+    }
+
+
+@mcp.tool()
+def get_opinion_feedback(day_number: int = 0, target_date: str = "") -> dict:
+    """Get opinion feedback for a specific day. Provide either day_number or target_date."""
+    conn = get_connection()
+    if day_number:
+        row = conn.execute("SELECT * FROM opinion_feedback WHERE day_number = ? ORDER BY created_at DESC",
+                           (day_number,)).fetchone()
+    elif target_date:
+        row = conn.execute("SELECT * FROM opinion_feedback WHERE target_date = ? ORDER BY created_at DESC",
+                           (target_date,)).fetchone()
+    else:
+        row = conn.execute("SELECT * FROM opinion_feedback ORDER BY created_at DESC").fetchone()
+    conn.close()
+    if not row:
+        return {"error": "No opinion feedback found"}
+    return dict(row)
+
+
+@mcp.tool()
+def get_opinion_history(days: int = 30) -> dict:
+    """Get opinion feedback history for trend analysis.
+
+    Returns all opinions with scores, averages, trends, position-first rate,
+    counter-argument rate, hedging rate, sources breakdown, best/worst opinions.
+    """
+    cutoff = (date.today() - timedelta(days=days)).isoformat()
+    conn = get_connection()
+    rows = conn.execute(
+        "SELECT * FROM opinion_feedback WHERE target_date >= ? ORDER BY target_date",
+        (cutoff,)
+    ).fetchall()
+    conn.close()
+
+    if not rows:
+        return {"opinions": [], "count": 0, "message": "No opinions in this period"}
+
+    records = [dict(r) for r in rows]
+    count = len(records)
+
+    # Averages
+    dims = ["compression_score", "vocabulary_score", "conviction_score", "logic_score", "overall_score"]
+    avgs = {}
+    for d in dims:
+        vals = [r[d] for r in records if r[d] and r[d] > 0]
+        avgs[d] = round(sum(vals) / len(vals), 1) if vals else 0
+
+    # Trends
+    mid = count // 2
+    trends = {}
+    if mid > 0:
+        for d in dims:
+            first = [r[d] for r in records[:mid] if r[d] and r[d] > 0]
+            second = [r[d] for r in records[mid:] if r[d] and r[d] > 0]
+            if first and second:
+                avg1 = sum(first) / len(first)
+                avg2 = sum(second) / len(second)
+                pct = ((avg2 - avg1) / avg1 * 100) if avg1 > 0 else 0
+                trends[d] = "improving" if pct > 10 else ("declining" if pct < -10 else "stable")
+            else:
+                trends[d] = "insufficient_data"
+
+    # Rates
+    position_rate = round(sum(1 for r in records if r.get("position_first")) / count * 100)
+    counter_rate = round(sum(1 for r in records if r.get("counter_destroyed")) / count * 100)
+    hedging_rate = round(sum(1 for r in records if not r.get("no_hedging")) / count * 100)
+
+    # Sources breakdown
+    sources = {}
+    for r in records:
+        src = r.get("article_source", "unknown")
+        sources[src] = sources.get(src, 0) + 1
+
+    # Best/worst
+    scored = [r for r in records if r["overall_score"] and r["overall_score"] > 0]
+    best = max(scored, key=lambda r: r["overall_score"]) if scored else None
+    worst = min(scored, key=lambda r: r["overall_score"]) if scored else None
+
+    return {
+        "count": count,
+        "averages": avgs,
+        "trends": trends,
+        "position_first_rate": position_rate,
+        "counter_argument_rate": counter_rate,
+        "hedging_rate": hedging_rate,
+        "sources": sources,
+        "best": {"day": best["day_number"], "date": best["target_date"],
+                 "score": best["overall_score"], "article": best.get("article_title")} if best else None,
+        "worst": {"day": worst["day_number"], "date": worst["target_date"],
+                  "score": worst["overall_score"], "article": worst.get("article_title")} if worst else None,
+        "opinions": [{
+            "day": r["day_number"], "date": r["target_date"],
+            "article": r.get("article_title"), "source": r.get("article_source"),
+            "overall_score": r["overall_score"], "conviction": r["conviction_score"],
+            "logic": r["logic_score"], "top_fix": r.get("top_fix"),
+        } for r in records],
+    }
+
+
+# ============================================================
+# COMMUNICATION: WORD BANK
+# ============================================================
+
+@mcp.tool()
+def add_power_word(
+    day_number: int = 0,
+    word: str = "",
+    meaning: str = "",
+    example_sentence: str = "",
+    target_date: str = "",
+    source: str = "assigned",
+) -> dict:
+    """Add a power word to the vocabulary bank.
+    source options: 'assigned' (daily assignment), 'book', 'article', 'conversation'
+    """
+    d = target_date or date.today().isoformat()
+    dn = day_number or _calc_day_number(d)
+
+    conn = get_connection()
+    conn.execute("""
+        INSERT INTO word_bank (day_number, target_date, word, meaning, example_sentence, source)
+        VALUES (?, ?, ?, ?, ?, ?)
+    """, (dn, d, word, meaning, example_sentence, source))
+    conn.commit()
+    sync_if_turso(conn)
+    conn.close()
+    return {"day": dn, "date": d, "word": word, "meaning": meaning, "source": source}
+
+
+@mcp.tool()
+def get_word_bank(days: int = 30) -> dict:
+    """Get all power words from the last N days with usage stats."""
+    cutoff = (date.today() - timedelta(days=days)).isoformat()
+    conn = get_connection()
+    rows = conn.execute(
+        "SELECT * FROM word_bank WHERE target_date >= ? ORDER BY target_date",
+        (cutoff,)
+    ).fetchall()
+    conn.close()
+
+    records = [dict(r) for r in rows]
+    total = len(records)
+    used_recording = sum(1 for r in records if r.get("used_in_recording"))
+    used_opinion = sum(1 for r in records if r.get("used_in_opinion"))
+
+    return {
+        "total_words": total,
+        "used_in_recording": used_recording,
+        "used_in_opinion": used_opinion,
+        "recording_usage_rate": round(used_recording / total * 100) if total > 0 else 0,
+        "opinion_usage_rate": round(used_opinion / total * 100) if total > 0 else 0,
+        "words": [{
+            "day": r["day_number"], "date": r["target_date"], "word": r["word"],
+            "meaning": r.get("meaning"), "used_in_recording": bool(r.get("used_in_recording")),
+            "used_in_opinion": bool(r.get("used_in_opinion")),
+        } for r in records],
+    }
+
+
+@mcp.tool()
+def mark_word_used(word: str, used_in: str = "recording") -> dict:
+    """Mark a power word as used in a recording or opinion.
+    used_in options: 'recording', 'opinion', 'both'
+    """
+    conn = get_connection()
+    row = conn.execute("SELECT * FROM word_bank WHERE word = ? ORDER BY target_date DESC",
+                       (word,)).fetchone()
+    if not row:
+        conn.close()
+        return {"error": f"Word '{word}' not found in word bank"}
+
+    if used_in in ("recording", "both"):
+        conn.execute("UPDATE word_bank SET used_in_recording = 1 WHERE id = ?", (row["id"],))
+    if used_in in ("opinion", "both"):
+        conn.execute("UPDATE word_bank SET used_in_opinion = 1 WHERE id = ?", (row["id"],))
+    conn.commit()
+    sync_if_turso(conn)
+    conn.close()
+    return {"word": word, "marked_used_in": used_in}
+
+
+# ============================================================
+# COMMUNICATION: STAGE ACADEMY
+# ============================================================
+
+@mcp.tool()
+def log_stage_academy(
+    module_number: str,
+    module_title: str = "",
+    duration_minutes: int = 0,
+    key_technique: str = "",
+    drill_completed: bool = False,
+    notes: str = "",
+    target_date: str = "",
+) -> dict:
+    """Log Stage Academy module completion.
+    module_number: e.g., '1', '2.1', '2.2', '3.1'
+    key_technique: e.g., 'Rate of speech variation', 'Dramatic pause'
+    """
+    d = target_date or date.today().isoformat()
+    conn = get_connection()
+    conn.execute("""
+        INSERT INTO stage_academy_progress
+        (target_date, module_number, module_title, duration_minutes, key_technique, drill_completed, notes)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+    """, (d, module_number, module_title, duration_minutes, key_technique, int(drill_completed), notes))
+    conn.commit()
+    sync_if_turso(conn)
+    conn.close()
+    return {"date": d, "module": module_number, "title": module_title,
+            "technique": key_technique, "drill": drill_completed}
+
+
+@mcp.tool()
+def get_stage_academy_progress() -> dict:
+    """Get Stage Academy progress — all modules completed, total hours, techniques learned."""
+    conn = get_connection()
+    rows = conn.execute("SELECT * FROM stage_academy_progress ORDER BY target_date").fetchall()
+    conn.close()
+
+    records = [dict(r) for r in rows]
+    total_minutes = sum(r.get("duration_minutes", 0) for r in records)
+    techniques = [r.get("key_technique") for r in records if r.get("key_technique")]
+    modules_done = list(set(r["module_number"] for r in records))
+
+    return {
+        "modules_completed": len(modules_done),
+        "modules": sorted(modules_done),
+        "total_hours": round(total_minutes / 60, 1),
+        "techniques_learned": techniques,
+        "entries": [{
+            "date": r["target_date"], "module": r["module_number"],
+            "title": r.get("module_title"), "technique": r.get("key_technique"),
+            "drill": bool(r.get("drill_completed")),
+        } for r in records],
+    }
+
+
+# ============================================================
+# COMMUNICATION: COMBINED PROGRESS
+# ============================================================
+
+@mcp.tool()
+def get_communication_progress(days: int = 30) -> dict:
+    """Get comprehensive communication progress report combining:
+    - Recording scores and trends
+    - Opinion scores and trends
+    - Word bank stats
+    - Stage Academy progress
+
+    Returns overall communication score trend, voice dimension trends,
+    critical thinking trends, words learned, and recommendations.
+    """
+    cutoff = (date.today() - timedelta(days=days)).isoformat()
+    conn = get_connection()
+
+    recs = conn.execute(
+        "SELECT * FROM recording_feedback WHERE target_date >= ? ORDER BY target_date",
+        (cutoff,)
+    ).fetchall()
+    ops = conn.execute(
+        "SELECT * FROM opinion_feedback WHERE target_date >= ? ORDER BY target_date",
+        (cutoff,)
+    ).fetchall()
+    words = conn.execute(
+        "SELECT * FROM word_bank WHERE target_date >= ? ORDER BY target_date",
+        (cutoff,)
+    ).fetchall()
+    academy = conn.execute(
+        "SELECT * FROM stage_academy_progress ORDER BY target_date"
+    ).fetchall()
+    conn.close()
+
+    recs = [dict(r) for r in recs]
+    ops = [dict(r) for r in ops]
+    words = [dict(r) for r in words]
+    academy = [dict(r) for r in academy]
+
+    # Recording averages
+    rec_overall = [r["overall_score"] for r in recs if r["overall_score"] and r["overall_score"] > 0]
+    rec_avg = round(sum(rec_overall) / len(rec_overall), 1) if rec_overall else 0
+
+    # Voice dimensions
+    voice_dims = {}
+    for d in ["pace_score", "pitch_score", "pause_score", "projection_score",
+              "clarity_score", "confidence_score", "energy_score"]:
+        vals = [r[d] for r in recs if r[d] and r[d] > 0]
+        voice_dims[d.replace("_score", "")] = round(sum(vals) / len(vals), 1) if vals else 0
+
+    # Opinion averages
+    op_overall = [r["overall_score"] for r in ops if r["overall_score"] and r["overall_score"] > 0]
+    op_avg = round(sum(op_overall) / len(op_overall), 1) if op_overall else 0
+
+    # Critical thinking dimensions
+    think_dims = {}
+    for d in ["compression_score", "vocabulary_score", "conviction_score", "logic_score"]:
+        vals = [r[d] for r in ops if r[d] and r[d] > 0]
+        think_dims[d.replace("_score", "")] = round(sum(vals) / len(vals), 1) if vals else 0
+
+    # Word bank
+    total_words = len(words)
+    words_used = sum(1 for w in words if w.get("used_in_recording") or w.get("used_in_opinion"))
+
+    # Academy
+    modules_done = len(set(a["module_number"] for a in academy))
+
+    # Recommendations
+    recommendations = []
+    if rec_avg < 5 and len(recs) > 3:
+        weakest_voice = min(voice_dims, key=voice_dims.get) if voice_dims else None
+        if weakest_voice:
+            recommendations.append(f"Focus on {weakest_voice} — it's your weakest voice dimension")
+    if op_avg < 5 and len(ops) > 3:
+        weakest_think = min(think_dims, key=think_dims.get) if think_dims else None
+        if weakest_think:
+            recommendations.append(f"Focus on {weakest_think} — weakest critical thinking dimension")
+    if total_words > 0 and words_used / total_words < 0.5:
+        recommendations.append("Use more power words — usage rate is below 50%")
+    if len(recs) < days * 0.5:
+        recommendations.append("Record more often — consistency builds skill")
+
+    return {
+        "period_days": days,
+        "recording": {
+            "count": len(recs),
+            "avg_overall": rec_avg,
+            "voice_dimensions": voice_dims,
+        },
+        "opinion": {
+            "count": len(ops),
+            "avg_overall": op_avg,
+            "thinking_dimensions": think_dims,
+        },
+        "word_bank": {
+            "total_words": total_words,
+            "words_used": words_used,
+            "usage_rate": round(words_used / total_words * 100) if total_words > 0 else 0,
+        },
+        "stage_academy": {
+            "modules_completed": modules_done,
+        },
+        "recommendations": recommendations,
+    }
+
+
 if __name__ == "__main__":
     transport = os.getenv("MCP_TRANSPORT", "stdio")
     port = int(os.getenv("PORT", "8000"))

@@ -390,6 +390,99 @@ SCHEMA_SQLITE = """
         notes TEXT DEFAULT '',
         created_at TEXT DEFAULT (datetime('now'))
     );
+
+    CREATE TABLE IF NOT EXISTS recording_feedback (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        day_number INTEGER NOT NULL,
+        target_date TEXT NOT NULL,
+        transcript TEXT DEFAULT '',
+        duration_seconds INTEGER DEFAULT 0,
+        word_count INTEGER DEFAULT 0,
+        words_per_minute REAL DEFAULT 0,
+        topic TEXT DEFAULT '',
+        framework_used TEXT DEFAULT '',
+        stage_academy_module TEXT DEFAULT '',
+        power_word_assigned TEXT DEFAULT '',
+        power_word_used INTEGER DEFAULT 0,
+        pace_score INTEGER DEFAULT 0,
+        pitch_score INTEGER DEFAULT 0,
+        pause_score INTEGER DEFAULT 0,
+        projection_score INTEGER DEFAULT 0,
+        clarity_score INTEGER DEFAULT 0,
+        confidence_score INTEGER DEFAULT 0,
+        energy_score INTEGER DEFAULT 0,
+        structure_score INTEGER DEFAULT 0,
+        hook_score INTEGER DEFAULT 0,
+        closing_score INTEGER DEFAULT 0,
+        vulnerability_score INTEGER DEFAULT 0,
+        filler_word_count INTEGER DEFAULT 0,
+        filler_words_detail TEXT DEFAULT '',
+        overall_score INTEGER DEFAULT 0,
+        top_strength TEXT DEFAULT '',
+        top_fix TEXT DEFAULT '',
+        feedback_text TEXT DEFAULT '',
+        benchmark_style TEXT DEFAULT '',
+        benchmark_notes TEXT DEFAULT '',
+        coach TEXT DEFAULT 'chatgpt',
+        created_at TEXT DEFAULT (datetime('now')),
+        updated_at TEXT DEFAULT (datetime('now'))
+    );
+
+    CREATE TABLE IF NOT EXISTS opinion_feedback (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        day_number INTEGER NOT NULL,
+        target_date TEXT NOT NULL,
+        article_source TEXT DEFAULT '',
+        article_title TEXT DEFAULT '',
+        article_url TEXT DEFAULT '',
+        article_lean TEXT DEFAULT '',
+        opinion_text TEXT DEFAULT '',
+        sentence_count INTEGER DEFAULT 0,
+        position_first INTEGER DEFAULT 0,
+        evidence_used INTEGER DEFAULT 0,
+        counter_destroyed INTEGER DEFAULT 0,
+        no_hedging INTEGER DEFAULT 0,
+        no_rhetorical_questions INTEGER DEFAULT 0,
+        compression_score INTEGER DEFAULT 0,
+        vocabulary_score INTEGER DEFAULT 0,
+        conviction_score INTEGER DEFAULT 0,
+        logic_score INTEGER DEFAULT 0,
+        overall_score INTEGER DEFAULT 0,
+        top_fix TEXT DEFAULT '',
+        ranganathan_rewrite TEXT DEFAULT '',
+        peterson_depth TEXT DEFAULT '',
+        feedback_text TEXT DEFAULT '',
+        power_word_assigned TEXT DEFAULT '',
+        power_word_used INTEGER DEFAULT 0,
+        coach TEXT DEFAULT 'chatgpt',
+        created_at TEXT DEFAULT (datetime('now')),
+        updated_at TEXT DEFAULT (datetime('now'))
+    );
+
+    CREATE TABLE IF NOT EXISTS word_bank (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        day_number INTEGER NOT NULL,
+        target_date TEXT NOT NULL,
+        word TEXT NOT NULL,
+        meaning TEXT DEFAULT '',
+        example_sentence TEXT DEFAULT '',
+        used_in_recording INTEGER DEFAULT 0,
+        used_in_opinion INTEGER DEFAULT 0,
+        source TEXT DEFAULT 'assigned',
+        created_at TEXT DEFAULT (datetime('now'))
+    );
+
+    CREATE TABLE IF NOT EXISTS stage_academy_progress (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        target_date TEXT NOT NULL,
+        module_number TEXT NOT NULL,
+        module_title TEXT DEFAULT '',
+        duration_minutes INTEGER DEFAULT 0,
+        key_technique TEXT DEFAULT '',
+        drill_completed INTEGER DEFAULT 0,
+        notes TEXT DEFAULT '',
+        created_at TEXT DEFAULT (datetime('now'))
+    );
 """
 
 SCHEMA_POSTGRES = """
@@ -493,6 +586,59 @@ SCHEMA_POSTGRES = """
         description TEXT DEFAULT '', calories INTEGER, protein_g REAL, carbs_g REAL,
         fat_g REAL, fiber_g REAL, foods TEXT DEFAULT '', photo_logged INTEGER DEFAULT 0,
         notes TEXT DEFAULT '', created_at TIMESTAMP DEFAULT NOW()
+    );
+
+    CREATE TABLE IF NOT EXISTS recording_feedback (
+        id SERIAL PRIMARY KEY, day_number INTEGER NOT NULL, target_date TEXT NOT NULL,
+        transcript TEXT DEFAULT '', duration_seconds INTEGER DEFAULT 0,
+        word_count INTEGER DEFAULT 0, words_per_minute REAL DEFAULT 0,
+        topic TEXT DEFAULT '', framework_used TEXT DEFAULT '',
+        stage_academy_module TEXT DEFAULT '', power_word_assigned TEXT DEFAULT '',
+        power_word_used INTEGER DEFAULT 0,
+        pace_score INTEGER DEFAULT 0, pitch_score INTEGER DEFAULT 0,
+        pause_score INTEGER DEFAULT 0, projection_score INTEGER DEFAULT 0,
+        clarity_score INTEGER DEFAULT 0, confidence_score INTEGER DEFAULT 0,
+        energy_score INTEGER DEFAULT 0, structure_score INTEGER DEFAULT 0,
+        hook_score INTEGER DEFAULT 0, closing_score INTEGER DEFAULT 0,
+        vulnerability_score INTEGER DEFAULT 0,
+        filler_word_count INTEGER DEFAULT 0, filler_words_detail TEXT DEFAULT '',
+        overall_score INTEGER DEFAULT 0, top_strength TEXT DEFAULT '',
+        top_fix TEXT DEFAULT '', feedback_text TEXT DEFAULT '',
+        benchmark_style TEXT DEFAULT '', benchmark_notes TEXT DEFAULT '',
+        coach TEXT DEFAULT 'chatgpt',
+        created_at TIMESTAMP DEFAULT NOW(), updated_at TIMESTAMP DEFAULT NOW()
+    );
+
+    CREATE TABLE IF NOT EXISTS opinion_feedback (
+        id SERIAL PRIMARY KEY, day_number INTEGER NOT NULL, target_date TEXT NOT NULL,
+        article_source TEXT DEFAULT '', article_title TEXT DEFAULT '',
+        article_url TEXT DEFAULT '', article_lean TEXT DEFAULT '',
+        opinion_text TEXT DEFAULT '', sentence_count INTEGER DEFAULT 0,
+        position_first INTEGER DEFAULT 0, evidence_used INTEGER DEFAULT 0,
+        counter_destroyed INTEGER DEFAULT 0, no_hedging INTEGER DEFAULT 0,
+        no_rhetorical_questions INTEGER DEFAULT 0,
+        compression_score INTEGER DEFAULT 0, vocabulary_score INTEGER DEFAULT 0,
+        conviction_score INTEGER DEFAULT 0, logic_score INTEGER DEFAULT 0,
+        overall_score INTEGER DEFAULT 0, top_fix TEXT DEFAULT '',
+        ranganathan_rewrite TEXT DEFAULT '', peterson_depth TEXT DEFAULT '',
+        feedback_text TEXT DEFAULT '', power_word_assigned TEXT DEFAULT '',
+        power_word_used INTEGER DEFAULT 0, coach TEXT DEFAULT 'chatgpt',
+        created_at TIMESTAMP DEFAULT NOW(), updated_at TIMESTAMP DEFAULT NOW()
+    );
+
+    CREATE TABLE IF NOT EXISTS word_bank (
+        id SERIAL PRIMARY KEY, day_number INTEGER NOT NULL, target_date TEXT NOT NULL,
+        word TEXT NOT NULL, meaning TEXT DEFAULT '', example_sentence TEXT DEFAULT '',
+        used_in_recording INTEGER DEFAULT 0, used_in_opinion INTEGER DEFAULT 0,
+        source TEXT DEFAULT 'assigned', created_at TIMESTAMP DEFAULT NOW()
+    );
+
+    CREATE TABLE IF NOT EXISTS stage_academy_progress (
+        id SERIAL PRIMARY KEY, target_date TEXT NOT NULL,
+        module_number TEXT NOT NULL, module_title TEXT DEFAULT '',
+        duration_minutes INTEGER DEFAULT 0, key_technique TEXT DEFAULT '',
+        drill_completed INTEGER DEFAULT 0, notes TEXT DEFAULT '',
+        created_at TIMESTAMP DEFAULT NOW()
     );
 """
 
