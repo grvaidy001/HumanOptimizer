@@ -41,7 +41,8 @@ async def health(request: Request):
     except Exception as e:
         whoop = {"has_tokens": False, "error": str(e)}
     conn.close()
-    return JSONResponse({"status": "ok", "tools": 53, "db_mode": "postgres" if IS_POSTGRES else "sqlite", "whoop": whoop})
+    tool_count = len(mcp._tool_manager._tools)
+    return JSONResponse({"status": "ok", "tools": tool_count, "db_mode": "postgres" if IS_POSTGRES else "sqlite", "whoop": whoop})
 
 
 async def whoop_webhook(request: Request):
